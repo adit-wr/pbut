@@ -348,6 +348,19 @@ export const THEMES = [
     patternAlpha: 0.8,
     swatch: ['#faf3ea', '#8b5e34'],
   },
+  {
+    id: 'obsidian-gold',
+    name: 'Obsidian Gold',
+    emoji: '🖤',
+    frame: '#000000',
+    accent: '#d4af37',
+    onFrame: '#fde68a',
+    photoFallback: '#12100a',
+    pattern: 'sparkles',
+    patternColor: '#d4af37',
+    patternAlpha: 0.9,
+    swatch: ['#000000', '#d4af37'],
+  },
 ]
 
 export const DEFAULT_THEME = THEMES[0]
