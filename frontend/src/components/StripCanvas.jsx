@@ -1,0 +1,52 @@
+import { useEffect } from 'react'
+import { drawPhotoStrip, loadImages, STRIP_WIDTH, getStripHeight } from '../lib/stripCanvas'
+
+/**
+ * Renders the photo strip on an HTML5 canvas.
+ * Re-draws whenever photos or the theme change, then notifies the parent
+ * via `onDrawn(photoCount)` so it knows the canvas holds finished artwork
+ * (the canvas bitmap is cleared whenever its height attribute changes, so
+ * exports must only happen after a completed draw).
+ */
+export default function StripCanvas({ photos, theme, canvasRef, onDrawn }) {
+  useEffect(() => {
+    if (photos.length === 0) return undefined
+
+    let stale = false
+    loadImages(photos)
+      .then((images) => {
+        if (stale || !canvasRef.current) return
+        drawPhotoStrip(canvasRef.current, images, theme)
+        onDrawn?.(photos.length)
+      })
+      .catch((err) => {
+        console.error(err)
+      })
+
+    return () => {
+      stale = true
+    }
+  }, [photos, theme, canvasRef, onDrawn])
+
+  if (photos.length === 0) {
+    return (
+      <div className="grid aspect-[600/480] w-full place-items-center rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-6 text-center">
+        <div>
+          <p className="text-3xl">🎞️</p>
+          <p className="mt-2 text-sm font-medium text-slate-300">Your strip will appear here</p>
+          <p className="mt-1 text-xs text-slate-500">Press Start and smile 3 times</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={STRIP_WIDTH}
+      height={getStripHeight(photos.length)}
+      aria-label="Generated photo strip"
+      className="h-auto w-full rounded-2xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/10"
+    />
+  )
+}
