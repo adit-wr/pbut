@@ -1,7 +1,7 @@
 import { THEMES } from '../lib/themes'
 
 /**
- * Six cute theme options — selecting one re-draws the canvas.
+ * Twenty cute theme options — selecting one re-draws the canvas.
  * Each card previews the strip: frame colour + 3 photo slots + motif emoji.
  */
 export default function ThemePicker({ value, onChange, disabled }) {
@@ -10,7 +10,7 @@ export default function ThemePicker({ value, onChange, disabled }) {
       <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
         Theme & motif
       </p>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto pr-1 sm:max-h-80">
         {THEMES.map((theme) => {
           const active = theme.id === value
           return (
