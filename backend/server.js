@@ -1,8 +1,13 @@
 import cors from 'cors'
 import express from 'express'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { config } from './src/config.js'
 import { isServiceConfigured } from './src/services/processor.js'
 import { photoRouter } from './src/routes/photo.routes.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 
@@ -17,6 +22,18 @@ app.get('/api/health', (_req, res) => {
 
 // API routes.
 app.use('/api', photoRouter)
+
+// Serve the built frontend (single-service deploy) — only when it exists,
+// so the dev workflow (Vite dev server) is untouched.
+const frontendDist = path.resolve(__dirname, '../frontend/dist')
+if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
+  app.use(express.static(frontendDist))
+  // SPA fallback: non-API GET requests get the app shell, not a 404.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next()
+    return res.sendFile(path.join(frontendDist, 'index.html'))
+  })
+}
 
 // JSON 404 for unknown API routes — deliberately generic: no reflection
 // of the requested path, so nothing can be inferred about internals.
