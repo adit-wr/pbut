@@ -10,6 +10,6 @@
     "start:backend": "npm start --prefix backend",
     "build": "npm run build --prefix frontend",
     "lint": "npm run lint --prefix frontend",
-    "start": "npm run start:backend"
+    "start": "node backend/server.js"
   }
 }
