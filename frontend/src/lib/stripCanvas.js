@@ -35,13 +35,25 @@ const PHOTO_ASPECT = 4 / 3 // width / height
 const CORNER_RADIUS = 14 * SCALE
 const BORDER_WIDTH = 4 * SCALE
 
-const SLOT_WIDTH = STRIP_WIDTH - OUTER_PADDING * 2 // 564
-const SLOT_HEIGHT = Math.round(SLOT_WIDTH / PHOTO_ASPECT) // 423
+const SLOT_WIDTH = STRIP_WIDTH - OUTER_PADDING * 2 // 1692
+const SLOT_HEIGHT = Math.round(SLOT_WIDTH / PHOTO_ASPECT) // 1269
 
-/** Total canvas height for a given number of photos (grows while capturing). */
-export function getStripHeight(photoCount) {
-  const count = Math.max(photoCount, 1)
-  return OUTER_PADDING * 2 + count * SLOT_HEIGHT + (count - 1) * GAP + FOOTER_HEIGHT
+/** 2-photo mode uses portrait (3:4) slots, centred horizontally in the frame. */
+const PORTRAIT_SLOT_WIDTH = 400 * SCALE // 1200
+const PORTRAIT_SLOT_HEIGHT = Math.round((PORTRAIT_SLOT_WIDTH * 4) / 3) // 1600
+
+/**
+ * The strip canvas is ALWAYS this tall (the 3-photo height). A 2-photo strip
+ * vertically centres its photos + footer inside the same canvas and the rest of
+ * the frame is filled with the theme's motif, so the exported PNG length never
+ * changes.
+ */
+const FIXED_HEIGHT =
+  OUTER_PADDING * 2 + PHOTO_COUNT * SLOT_HEIGHT + (PHOTO_COUNT - 1) * GAP + FOOTER_HEIGHT // 4179
+
+/** Total canvas height — always the 3-photo height (see above). */
+export function getStripHeight() {
+  return FIXED_HEIGHT
 }
 
 /** Loads data-URL photos into HTMLImageElements (resolves once decoded). */
@@ -236,7 +248,20 @@ export function drawPhotoStrip(canvas, images, theme) {
   if (!ctx) return
 
   const width = STRIP_WIDTH
-  const height = getStripHeight(images.length)
+  const height = getStripHeight()
+
+  // For 2 photos use portrait (3:4) slots centred horizontally; the frame on
+  // both sides stays filled with the theme's motif.
+  const count = images.length
+  const portrait = count === 2
+  const slotWidth = portrait ? PORTRAIT_SLOT_WIDTH : SLOT_WIDTH
+  const slotHeight = portrait ? PORTRAIT_SLOT_HEIGHT : SLOT_HEIGHT
+  const slotX = Math.round((width - slotWidth) / 2)
+  const gap = portrait ? GAP * 3 : GAP // more breathing room between tall photos
+
+  // Vertically centre (photos + footer) inside the fixed-height canvas.
+  const contentHeight = count * slotHeight + (count - 1) * gap + FOOTER_HEIGHT
+  const topOffset = Math.floor((height - contentHeight) / 2)
 
   // Setting width/height resets the context, so do it first.
   canvas.width = width
@@ -254,22 +279,22 @@ export function drawPhotoStrip(canvas, images, theme) {
 
   // 2. Photos, one slot per photo.
   images.forEach((img, index) => {
-    const x = OUTER_PADDING
-    const y = OUTER_PADDING + index * (SLOT_HEIGHT + GAP)
+    const x = slotX
+    const y = topOffset + index * (slotHeight + gap)
 
     ctx.save()
     ctx.beginPath()
-    roundedRectPath(ctx, x, y, SLOT_WIDTH, SLOT_HEIGHT, CORNER_RADIUS)
+    roundedRectPath(ctx, x, y, slotWidth, slotHeight, CORNER_RADIUS)
     ctx.clip()
     ctx.fillStyle = theme.photoFallback
-    ctx.fillRect(x, y, SLOT_WIDTH, SLOT_HEIGHT)
-    drawCover(ctx, img, x, y, SLOT_WIDTH, SLOT_HEIGHT)
+    ctx.fillRect(x, y, slotWidth, slotHeight)
+    drawCover(ctx, img, x, y, slotWidth, slotHeight)
     ctx.restore()
 
     // Accent border on top of the photo.
     ctx.save()
     ctx.beginPath()
-    roundedRectPath(ctx, x, y, SLOT_WIDTH, SLOT_HEIGHT, CORNER_RADIUS)
+    roundedRectPath(ctx, x, y, slotWidth, slotHeight, CORNER_RADIUS)
     ctx.lineWidth = BORDER_WIDTH
     ctx.strokeStyle = theme.accent
     ctx.stroke()
@@ -277,7 +302,7 @@ export function drawPhotoStrip(canvas, images, theme) {
   })
 
   // 3. Footer (emoji + brand + date) on the frame.
-  const footerTop = OUTER_PADDING + images.length * SLOT_HEIGHT + (images.length - 1) * GAP
+  const footerTop = topOffset + images.length * slotHeight + (images.length - 1) * gap
   const footerCenterY = footerTop + FOOTER_HEIGHT / 2
 
   ctx.save()

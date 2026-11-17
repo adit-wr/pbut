@@ -34,7 +34,7 @@ export default function StripCanvas({ photos, theme, canvasRef, onDrawn }) {
         <div>
           <p className="text-3xl">🎞️</p>
           <p className="mt-2 text-sm font-medium text-slate-300">Your strip will appear here</p>
-          <p className="mt-1 text-xs text-slate-500">Press Start and smile 3 times</p>
+          <p className="mt-1 text-xs text-slate-500">Press Start and smile — pick 2 or 3 photos in the header</p>
         </div>
       </div>
     )
@@ -44,7 +44,7 @@ export default function StripCanvas({ photos, theme, canvasRef, onDrawn }) {
     <canvas
       ref={canvasRef}
       width={STRIP_WIDTH}
-      height={getStripHeight(photos.length)}
+      height={getStripHeight()}
       aria-label="Generated photo strip"
       className="h-auto w-full rounded-2xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/10"
     />

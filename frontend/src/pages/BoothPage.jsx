@@ -35,6 +35,7 @@ export default function BoothPage() {
   const [save, setSave] = useState(SAVE_IDLE)
   const [camError, setCamError] = useState(null)
   const [captureError, setCaptureError] = useState(null)
+  const [photoCount, setPhotoCount] = useState(PHOTO_COUNT) // 2 or 3
 
   // THEMES is a module-level constant, so this reference is stable per theme id.
   const theme = THEMES.find((item) => item.id === themeId) ?? DEFAULT_THEME
@@ -43,7 +44,7 @@ export default function BoothPage() {
   const handleStripDrawn = useCallback((count) => setDrawnCount(count), [])
 
   const busy = phase !== 'idle'
-  const reviewing = phase === 'reviewing' && photos.length === PHOTO_COUNT
+  const reviewing = phase === 'reviewing' && photos.length === photoCount
   // Download unlocks only after the strip has been processed successfully.
   const processed = save.status === 'success'
 
@@ -66,7 +67,7 @@ export default function BoothPage() {
 
     const captured = []
 
-    for (let shot = 0; shot < PHOTO_COUNT; shot += 1) {
+    for (let shot = 0; shot < photoCount; shot += 1) {
       for (let tick = COUNTDOWN_SECONDS; tick >= 1; tick -= 1) {
         if (cancelledRef.current) return
         setCountdown(tick)
@@ -90,12 +91,12 @@ export default function BoothPage() {
       await sleep(FLASH_MS)
       setFlash(false)
 
-      if (shot < PHOTO_COUNT - 1) await sleep(SHOT_DELAY_MS)
+      if (shot < photoCount - 1) await sleep(SHOT_DELAY_MS)
     }
 
     if (cancelledRef.current) return
     setPhase('reviewing')
-  }, [])
+  }, [photoCount])
 
   const handleToggleCamera = useCallback(() => {
     if (busy) return
@@ -121,7 +122,7 @@ export default function BoothPage() {
     // `drawnCount` guarantees the bitmap on the canvas is finished artwork:
     // React clears the canvas whenever the photo count (and therefore its
     // height attribute) changes, so exporting earlier would yield a blank PNG.
-    if (drawnCount !== PHOTO_COUNT || photos.length < PHOTO_COUNT) return undefined
+    if (drawnCount !== photoCount || photos.length < photoCount) return undefined
 
     const session = sessionRef.current
     const canvas = canvasRef.current
@@ -147,7 +148,7 @@ export default function BoothPage() {
     })()
 
     return undefined
-  }, [drawnCount, photos, uploadTick])
+  }, [drawnCount, photos, uploadTick, photoCount])
 
   const handleRetryUpload = useCallback(() => {
     uploadedSessionRef.current = null
@@ -202,6 +203,31 @@ export default function BoothPage() {
             <p className="text-xs text-slate-400">web photobooth</p>
           </div>
         </div>
+
+        {/* Photo count selector (disabled only while capturing) */}
+        <div
+          role="group"
+          aria-label="Number of photos"
+          className="flex shrink-0 rounded-xl border border-slate-800 bg-slate-900/60 p-1 text-xs font-bold"
+        >
+          {[2, 3].map((n) => {
+            const active = photoCount === n
+            return (
+              <button
+                key={n}
+                type="button"
+                disabled={phase === 'counting'}
+                onClick={() => setPhotoCount(n)}
+                aria-pressed={active}
+                className={`min-h-9 min-w-16 rounded-lg px-4 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  active ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {n} photos
+              </button>
+            )
+          })}
+        </div>
       </header>
 
       <main className="mt-5 grid flex-1 items-start gap-5 sm:mt-6 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -216,6 +242,7 @@ export default function BoothPage() {
             error={camError}
             onCameraError={setCamError}
             onRetry={() => setCamError(null)}
+            photoCount={photoCount}
           />
 
           {captureError && (
@@ -256,8 +283,8 @@ export default function BoothPage() {
               {!cameraOn
                 ? 'Turn the camera on to start'
                 : phase === 'counting'
-                  ? `${PHOTO_COUNT} photos · ${COUNTDOWN_SECONDS}s countdown`
-                  : `${PHOTO_COUNT} photos · ${COUNTDOWN_SECONDS} second countdown each`}
+                  ? `${photoCount} photos · ${COUNTDOWN_SECONDS}s countdown`
+                  : `${photoCount} photos · ${COUNTDOWN_SECONDS} second countdown each`}
             </span>
           </div>
         </section>

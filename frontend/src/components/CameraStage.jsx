@@ -31,9 +31,16 @@ export default function CameraStage({
   error,
   onRetry,
   onCameraError,
+  photoCount = 3,
 }) {
+  const portrait = photoCount === 2
+
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10">
+    <div
+      className={`relative w-full overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10 ${
+        portrait ? 'mx-auto aspect-[3/4] max-w-sm' : 'aspect-video'
+      }`}
+    >
       {!cameraOn ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
           <span className="text-4xl opacity-80">📷</span>
@@ -76,9 +83,9 @@ export default function CameraStage({
             forceScreenshotSourceSize
             videoConstraints={{
               facingMode: 'user',
-              width: { ideal: 2560 },
-              height: { ideal: 1920 },
-              aspectRatio: { ideal: 4 / 3 },
+              width: { ideal: portrait ? 1440 : 2560 },
+              height: { ideal: portrait ? 1920 : 1920 },
+              aspectRatio: { ideal: portrait ? 3 / 4 : 4 / 3 },
             }}
             onUserMediaError={(err) => onCameraError?.(describeCameraError(err))}
             className="h-full w-full object-cover"
