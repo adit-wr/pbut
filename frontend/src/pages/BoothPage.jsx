@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import ArFilterPicker from '../components/ArFilterPicker.jsx'
 import CameraStage from '../components/CameraStage.jsx'
+import FilterPicker from '../components/FilterPicker.jsx'
 import StripCanvas from '../components/StripCanvas.jsx'
 import ThemePicker from '../components/ThemePicker.jsx'
 import { canvasToPngBlob, processPhoto } from '../lib/api.js'
+import { DEFAULT_AR_FILTER } from '../lib/arFilters.js'
+import { DEFAULT_FILTER, FILTERS } from '../lib/filters.js'
 import { PHOTO_COUNT } from '../lib/stripCanvas.js'
 import { DEFAULT_THEME, THEMES } from '../lib/themes.js'
 
@@ -22,6 +26,7 @@ export default function BoothPage() {
   const sessionRef = useRef(null) // unique id per capture session
   const uploadedSessionRef = useRef(null) // guards against double sends
   const cancelledRef = useRef(false)
+  const latestLandmarksRef = useRef([])
 
   // --- state ----------------------------------------------------------------
   const [photos, setPhotos] = useState([])
@@ -32,13 +37,20 @@ export default function BoothPage() {
   const [drawnCount, setDrawnCount] = useState(0) // photos in the last completed draw
   const [uploadTick, setUploadTick] = useState(0) // bump to retry processing
   const [themeId, setThemeId] = useState(DEFAULT_THEME.id)
+  const [filterId, setFilterId] = useState(DEFAULT_FILTER.id)
+  const [arFilterId, setArFilterId] = useState(DEFAULT_AR_FILTER.id)
   const [save, setSave] = useState(SAVE_IDLE)
   const [camError, setCamError] = useState(null)
   const [captureError, setCaptureError] = useState(null)
   const [photoCount, setPhotoCount] = useState(PHOTO_COUNT) // 2 or 3
 
+  const handleLandmarksUpdate = useCallback((faces) => {
+    latestLandmarksRef.current = faces
+  }, [])
+
   // THEMES is a module-level constant, so this reference is stable per theme id.
   const theme = THEMES.find((item) => item.id === themeId) ?? DEFAULT_THEME
+  const filter = FILTERS.find((item) => item.id === filterId) ?? DEFAULT_FILTER
 
   // Stable identity: the canvas effect only re-runs when photos/theme change.
   const handleStripDrawn = useCallback((count) => setDrawnCount(count), [])
@@ -83,7 +95,20 @@ export default function BoothPage() {
         return
       }
 
-      captured.push(dataUrl)
+      // Clone and flip landmarks horizontally (1 - x) to match mirrored screenshot
+      const rawFaces = latestLandmarksRef.current || []
+      const flippedLandmarks = rawFaces.map((face) =>
+        face.map((pt) => ({
+          x: 1 - pt.x,
+          y: pt.y,
+          z: pt.z,
+        })),
+      )
+
+      captured.push({
+        dataUrl,
+        landmarks: flippedLandmarks,
+      })
       setPhotos([...captured])
 
       // Full-screen shutter flash (not just the camera area).
@@ -243,6 +268,9 @@ export default function BoothPage() {
             onCameraError={setCamError}
             onRetry={() => setCamError(null)}
             photoCount={photoCount}
+            filter={filter}
+            arFilterId={arFilterId}
+            onLandmarksUpdate={handleLandmarksUpdate}
           />
 
           {captureError && (
@@ -291,14 +319,22 @@ export default function BoothPage() {
 
         {/* Right: theme + strip + actions */}
         <section className="flex flex-col gap-4">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3 sm:p-4">
-            <ThemePicker value={themeId} onChange={setThemeId} disabled={phase === 'counting'} />
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-3 sm:p-4">
+            <ArFilterPicker value={arFilterId} onChange={setArFilterId} disabled={phase === 'counting'} />
+            <div className="border-t border-slate-800/80 pt-3">
+              <FilterPicker value={filterId} onChange={setFilterId} disabled={phase === 'counting'} />
+            </div>
+            <div className="border-t border-slate-800/80 pt-3">
+              <ThemePicker value={themeId} onChange={setThemeId} disabled={phase === 'counting'} />
+            </div>
           </div>
 
           <div className="mx-auto w-full max-w-[300px] sm:max-w-[340px] lg:max-w-none">
             <StripCanvas
               photos={photos}
               theme={theme}
+              filter={filter}
+              arFilterId={arFilterId}
               canvasRef={canvasRef}
               onDrawn={handleStripDrawn}
             />

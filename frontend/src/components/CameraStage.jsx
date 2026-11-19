@@ -1,4 +1,7 @@
+import { useEffect, useRef } from 'react'
 import Webcam from 'react-webcam'
+import { getFaceLandmarker } from '../lib/faceTracker'
+import { renderArFilter } from '../lib/renderArOverlay'
 
 function describeCameraError(err) {
   const name = err?.name || String(err)
@@ -17,10 +20,7 @@ function describeCameraError(err) {
 }
 
 /**
- * Live camera stage with a countdown overlay and an on/off switch.
- * The parent owns the webcamRef so it can call getScreenshot().
- * When the camera is off the <Webcam> is unmounted, which releases the
- * device so other apps can use it.
+ * Live camera stage with countdown overlay, AR face tracking overlay, and on/off switch.
  */
 export default function CameraStage({
   webcamRef,
@@ -32,8 +32,93 @@ export default function CameraStage({
   onRetry,
   onCameraError,
   photoCount = 3,
+  filter,
+  arFilterId = 'none',
+  onLandmarksUpdate,
 }) {
   const portrait = photoCount === 2
+  const overlayRef = useRef(null)
+  const animFrameRef = useRef(null)
+  const latestLandmarksRef = useRef(null)
+
+  // Face tracking loop
+  useEffect(() => {
+    if (!cameraOn || error) return undefined
+
+    let isMounted = true
+    let landmarker = null
+    let lastTime = -1
+
+    getFaceLandmarker().then((lm) => {
+      if (isMounted) landmarker = lm
+    })
+
+    const tick = () => {
+      if (!isMounted) return
+
+      const video = webcamRef.current?.video
+      const canvas = overlayRef.current
+
+      if (video && video.readyState >= 2 && canvas && landmarker) {
+        const vw = video.videoWidth
+        const vh = video.videoHeight
+        const cw = canvas.clientWidth
+        const ch = canvas.clientHeight
+
+        if (vw && vh && cw && ch) {
+          if (canvas.width !== cw || canvas.height !== ch) {
+            canvas.width = cw
+            canvas.height = ch
+          }
+
+          const now = performance.now()
+          if (now - lastTime >= 30) {
+            lastTime = now
+            try {
+              const res = landmarker.detectForVideo(video, now)
+              const faces = res?.faceLandmarks || []
+              latestLandmarksRef.current = faces
+              onLandmarksUpdate?.(faces)
+
+              const ctx = canvas.getContext('2d')
+              if (ctx) {
+                ctx.clearRect(0, 0, cw, ch)
+
+                if (arFilterId && arFilterId !== 'none' && faces.length > 0) {
+                  const scale = Math.max(cw / vw, ch / vh)
+                  const dw = vw * scale
+                  const dh = vh * scale
+                  const dx = (cw - dw) / 2
+                  const dy = (ch - dh) / 2
+
+                  const toCanvas = (nx, ny) => ({
+                    x: dx + nx * dw,
+                    y: dy + ny * dh,
+                  })
+
+                  renderArFilter(ctx, faces, toCanvas, arFilterId)
+                }
+              }
+            } catch {
+              // Video frame dropped or task busy, continue
+            }
+          }
+        }
+      } else if (canvas) {
+        const ctx = canvas.getContext('2d')
+        ctx?.clearRect(0, 0, canvas.width, canvas.height)
+      }
+
+      animFrameRef.current = requestAnimationFrame(tick)
+    }
+
+    animFrameRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      isMounted = false
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+    }
+  }, [cameraOn, error, arFilterId, webcamRef, onLandmarksUpdate])
 
   return (
     <div
@@ -88,7 +173,15 @@ export default function CameraStage({
               aspectRatio: { ideal: portrait ? 3 / 4 : 4 / 3 },
             }}
             onUserMediaError={(err) => onCameraError?.(describeCameraError(err))}
-            className="h-full w-full object-cover"
+            style={{ filter: filter?.cssFilter || 'none' }}
+            className="h-full w-full object-cover transition-[filter] duration-200"
+          />
+
+          {/* AR Face filter overlay canvas (mirrored identically to match the mirrored webcam video) */}
+          <canvas
+            ref={overlayRef}
+            style={{ transform: 'scaleX(-1)' }}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           />
 
           {/* Live indicator */}

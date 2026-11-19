@@ -8,7 +8,7 @@ import { drawPhotoStrip, loadImages, STRIP_WIDTH, getStripHeight } from '../lib/
  * (the canvas bitmap is cleared whenever its height attribute changes, so
  * exports must only happen after a completed draw).
  */
-export default function StripCanvas({ photos, theme, canvasRef, onDrawn }) {
+export default function StripCanvas({ photos, theme, filter, arFilterId, canvasRef, onDrawn }) {
   useEffect(() => {
     if (photos.length === 0) return undefined
 
@@ -16,7 +16,7 @@ export default function StripCanvas({ photos, theme, canvasRef, onDrawn }) {
     loadImages(photos)
       .then((images) => {
         if (stale || !canvasRef.current) return
-        drawPhotoStrip(canvasRef.current, images, theme)
+        drawPhotoStrip(canvasRef.current, images, theme, filter, arFilterId)
         onDrawn?.(photos.length)
       })
       .catch((err) => {
@@ -26,7 +26,7 @@ export default function StripCanvas({ photos, theme, canvasRef, onDrawn }) {
     return () => {
       stale = true
     }
-  }, [photos, theme, canvasRef, onDrawn])
+  }, [photos, theme, filter, arFilterId, canvasRef, onDrawn])
 
   if (photos.length === 0) {
     return (

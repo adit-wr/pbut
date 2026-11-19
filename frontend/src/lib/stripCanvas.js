@@ -24,6 +24,8 @@
  * padding, the gaps and the footer.
  */
 
+import { renderArFilter } from './renderArOverlay'
+
 const SCALE = 3 // 3x the original layout (1800px wide) → a much sharper strip
 export const STRIP_WIDTH = 600 * SCALE
 export const PHOTO_COUNT = 3
@@ -57,13 +59,17 @@ export function getStripHeight() {
 }
 
 /** Loads data-URL photos into HTMLImageElements (resolves once decoded). */
-export function loadImages(dataUrls) {
+export function loadImages(items) {
   return Promise.all(
-    dataUrls.map(
-      (src) =>
+    items.map(
+      (item) =>
         new Promise((resolve, reject) => {
+          const src = typeof item === 'string' ? item : item.dataUrl
           const img = new Image()
-          img.onload = () => resolve(img)
+          img.onload = () => {
+            img._landmarks = item?.landmarks || null
+            resolve(img)
+          }
           img.onerror = () => reject(new Error('Failed to decode a captured photo.'))
           img.src = src
         }),
@@ -240,9 +246,9 @@ function drawCover(ctx, img, x, y, w, h) {
 
 /**
  * Renders the full photo strip onto `canvas`.
- * Re-runs whenever the photos or the selected theme change.
+ * Re-runs whenever the photos, the selected theme, the selected filter, or AR filter change.
  */
-export function drawPhotoStrip(canvas, images, theme) {
+export function drawPhotoStrip(canvas, images, theme, filter, arFilterId) {
   if (!canvas || !images?.length) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
@@ -288,7 +294,31 @@ export function drawPhotoStrip(canvas, images, theme) {
     ctx.clip()
     ctx.fillStyle = theme.photoFallback
     ctx.fillRect(x, y, slotWidth, slotHeight)
+
+    // Apply photo filter only to the photo image, preserving frame & accents
+    ctx.filter = filter?.cssFilter || 'none'
     drawCover(ctx, img, x, y, slotWidth, slotHeight)
+
+    // Render AR Face props if present and landmarks exist
+    if (arFilterId && arFilterId !== 'none' && img._landmarks?.length) {
+      ctx.filter = 'none'
+      const iw = img.naturalWidth || img.width
+      const ih = img.naturalHeight || img.height
+      if (iw && ih) {
+        const scale = Math.max(slotWidth / iw, slotHeight / ih)
+        const dw = iw * scale
+        const dh = ih * scale
+        const dx = x + (slotWidth - dw) / 2
+        const dy = y + (slotHeight - dh) / 2
+
+        const toSlotCanvas = (nx, ny) => ({
+          x: dx + nx * dw,
+          y: dy + ny * dh,
+        })
+
+        renderArFilter(ctx, img._landmarks, toSlotCanvas, arFilterId)
+      }
+    }
     ctx.restore()
 
     // Accent border on top of the photo.
