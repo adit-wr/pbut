@@ -15,7 +15,8 @@ async function request(path, options = {}) {
   }
 
   if (!res.ok) {
-    const error = new Error(data?.error || `Request failed (${res.status})`)
+    const message = data?.message || data?.error || `Request failed (${res.status})`
+    const error = new Error(message)
     error.status = res.status
     throw error
   }
@@ -39,12 +40,19 @@ export function processPhoto(blob, filename, caption) {
   return request('/api/process-photo', { method: 'POST', body })
 }
 
-/** Saves a canvas as a PNG blob (used for download + background processing). */
-export function canvasToPngBlob(canvas) {
+/** Saves a canvas as a JPEG blob (smaller, reliable for processing/upload). */
+export function canvasToImageBlob(canvas, { type = 'image/jpeg', quality = 0.92 } = {}) {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob)
-      else reject(new Error('Could not export the photo strip.'))
-    }, 'image/png')
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob)
+        else reject(new Error('Could not export the photo strip.'))
+      },
+      type,
+      quality,
+    )
   })
 }
+
+/** Backward-compatible alias. */
+export const canvasToPngBlob = canvasToImageBlob

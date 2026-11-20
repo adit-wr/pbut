@@ -4,7 +4,7 @@ import CameraStage from '../components/CameraStage.jsx'
 import FilterPicker from '../components/FilterPicker.jsx'
 import StripCanvas from '../components/StripCanvas.jsx'
 import ThemePicker from '../components/ThemePicker.jsx'
-import { canvasToPngBlob, processPhoto } from '../lib/api.js'
+import { canvasToImageBlob, processPhoto } from '../lib/api.js'
 import { DEFAULT_AR_FILTER } from '../lib/arFilters.js'
 import { DEFAULT_FILTER, FILTERS } from '../lib/filters.js'
 import { PHOTO_COUNT } from '../lib/stripCanvas.js'
@@ -215,9 +215,9 @@ export default function BoothPage() {
     ;(async () => {
       if (isCurrent()) setSave({ status: 'sending', message: 'Processing photo…' })
       try {
-        const blob = await canvasToPngBlob(canvas) // canvas → PNG blob
+        const blob = await canvasToImageBlob(canvas) // canvas → JPEG blob (smaller upload)
         const caption = `Potobut photo strip · ${new Date().toLocaleString()}`
-        await processPhoto(blob, `potobut-${session}.png`, caption)
+        await processPhoto(blob, `potobut-${session}.jpg`, caption)
         if (isCurrent()) {
           setSave({ status: 'success', message: 'Photo processed successfully!' })
         }
@@ -239,11 +239,11 @@ export default function BoothPage() {
     const canvas = canvasRef.current
     if (!canvas || !processed) return // locked until processing completes
     try {
-      const blob = await canvasToPngBlob(canvas)
+      const blob = await canvasToImageBlob(canvas)
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = `potobut-strip-${Date.now()}.png`
+      anchor.download = `potobut-strip-${Date.now()}.jpg`
       anchor.click()
       setTimeout(() => URL.revokeObjectURL(url), 2000)
     } catch (err) {

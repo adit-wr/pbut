@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,7 +19,7 @@ import (
 )
 
 const (
-	maxUploadBytes = 10 << 20 // 10 MB
+	maxUploadBytes = 25 << 20 // 25 MB
 	defaultPort    = "4000"   // local-dev default (Railway provides PORT)
 )
 
@@ -95,6 +96,7 @@ func (s *serviceConfig) handleProcessPhoto(w http.ResponseWriter, r *http.Reques
 
 	fileBuf, filename, contentType, caption, err := readUpload(r)
 	if err != nil {
+		log.Printf("process-photo upload: %v", err)
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"status":  "error",
 			"message": err.Error(),
@@ -138,6 +140,10 @@ func readUpload(r *http.Request) (*bytes.Buffer, string, string, string, error) 
 			break
 		}
 		if err != nil {
+			var mbe *http.MaxBytesError
+			if errors.As(err, &mbe) {
+				return nil, "", "", "", fmt.Errorf("Photo is too large.")
+			}
 			return nil, "", "", "", fmt.Errorf("Invalid upload request.")
 		}
 
@@ -154,6 +160,10 @@ func readUpload(r *http.Request) (*bytes.Buffer, string, string, string, error) 
 			buf := &bytes.Buffer{}
 			if _, err := io.Copy(buf, part); err != nil {
 				part.Close()
+				var mbe *http.MaxBytesError
+				if errors.As(err, &mbe) {
+					return nil, "", "", "", fmt.Errorf("Photo is too large.")
+				}
 				return nil, "", "", "", fmt.Errorf("Could not read uploaded file.")
 			}
 			fn := part.FileName()
