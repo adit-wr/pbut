@@ -1,11 +1,3 @@
-/**
- * Level-3 beauty pipeline: color grading, skin smoothing (landmark-masked),
- * glow/soft focus, vignette, and film grain.
- *
- * Works on Canvas2D for both realtime preview frames and final strip photos.
- * Designed to be compatible with renderArOverlay (landmarks stay in the same
- * normalized video space; callers provide mapping helpers).
- */
 
 const FACE_OVAL = [
   10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378,
@@ -19,17 +11,17 @@ const LEFT_EYE = [
 const RIGHT_EYE = [
   362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398,
 ]
-// Outer lips
+
 const LIPS_OUTER = [
   61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37,
   39, 40, 185,
 ]
-// Inner lips / mouth opening (to avoid tinting teeth)
+
 const LIPS_INNER = [
   78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87,
   178, 88, 95,
 ]
-// Eyebrow regions (approx) to avoid over-smoothing brows
+
 const LEFT_BROW = [70, 63, 105, 66, 107, 55, 65, 52, 53, 46]
 const RIGHT_BROW = [336, 296, 334, 293, 300, 276, 283, 282, 295, 285]
 
@@ -41,7 +33,7 @@ function clamp01(v) {
 }
 
 function getNoiseCanvas() {
-  // Tileable-ish small noise pattern scaled up for performance
+
   const tw = 256
   const th = 256
   const key = `${tw}x${th}`
@@ -107,22 +99,16 @@ function traceLandmarks(ctx, face, indices, toPoint) {
   ctx.closePath()
 }
 
-/**
- * Build a soft skin mask (white = smooth/whiten area) for one face.
- * Excludes eyes, lips, and brows. Returns a canvas.
- */
 function buildSkinMask(face, toPoint, w, h, featherPx, cache) {
   const mask = ensureCanvas(cache, 'mask', w, h)
   const mctx = mask.getContext('2d')
   if (!mctx) return mask
   mctx.clearRect(0, 0, w, h)
 
-  // Face center for slight expansion
   const nose = toPoint(face[1] || face[4] || face[168] || face[0])
   const cx = nose?.x ?? w / 2
   const cy = nose?.y ?? h / 2
 
-  // Expanded face oval for better coverage
   const ovalPts = expandPoly(face, FACE_OVAL, toPoint, cx, cy, 1.08)
 
   mctx.save()
@@ -132,7 +118,6 @@ function buildSkinMask(face, toPoint, w, h, featherPx, cache) {
   tracePts(mctx, ovalPts)
   mctx.fill()
 
-  // Cut out features
   mctx.globalCompositeOperation = 'destination-out'
   mctx.fillStyle = '#fff'
 
@@ -181,9 +166,6 @@ function buildAllFaceMask(faces, toPoint, w, h, featherPx, cache) {
   return maskAll
 }
 
-/**
- * Apply skin smoothing for all faces using a prebuilt mask.
- */
 function applySkinSmoothing(outCtx, baseCanvas, w, h, maskAll, opts, cache) {
   const strength = clamp01(opts.smooth ?? 0)
   if (!strength) return
@@ -208,9 +190,6 @@ function applySkinSmoothing(outCtx, baseCanvas, w, h, maskAll, opts, cache) {
   outCtx.restore()
 }
 
-/**
- * Brighten/whiten face skin within mask (natural-looking).
- */
 function applyFaceWhiten(outCtx, w, h, maskAll, opts, cache) {
   const strength = clamp01(opts.whiten ?? 0)
   if (!strength) return
@@ -220,7 +199,6 @@ function applyFaceWhiten(outCtx, w, h, maskAll, opts, cache) {
   if (!tctx) return
   tctx.clearRect(0, 0, w, h)
 
-  // Soft bright layer (slightly warm/neutral to avoid grey cast)
   const tone = opts.whitenTone || '255,255,252'
   tctx.fillStyle = `rgb(${tone})`
   tctx.fillRect(0, 0, w, h)
@@ -234,7 +212,6 @@ function applyFaceWhiten(outCtx, w, h, maskAll, opts, cache) {
   outCtx.drawImage(tmp, 0, 0)
   outCtx.restore()
 
-  // Extra lift with soft-light for a brighter/clear look at higher strength (kept gentle)
   if (strength > 0.35) {
     outCtx.save()
     outCtx.globalCompositeOperation = 'soft-light'
@@ -252,9 +229,6 @@ function getEyeDist(face, toPoint) {
   return d || 1
 }
 
-/**
- * Natural cheek blush on both cheeks.
- */
 function applyCheekBlush(outCtx, faces, toPoint, opts) {
   const amount = clamp01(opts.cheek ?? 0)
   if (!amount) return
@@ -267,13 +241,13 @@ function applyCheekBlush(outCtx, faces, toPoint, opts) {
     const r = eyeDist * (opts.cheekSize ?? 0.62)
 
     const pts = [
-      toPoint(face[50] || face[205] || face[101]), // left cheek
-      toPoint(face[280] || face[425] || face[330]), // right cheek
+      toPoint(face[50] || face[205] || face[101]),
+      toPoint(face[280] || face[425] || face[330]),
     ]
 
     pts.forEach((c, idx) => {
       if (!c) return
-      // nudge slightly down and toward center for natural placement
+
       const inward = idx === 0 ? 1 : -1
       const x = c.x + inward * eyeDist * 0.06
       const y = c.y + eyeDist * 0.12
@@ -292,9 +266,6 @@ function applyCheekBlush(outCtx, faces, toPoint, opts) {
   }
 }
 
-/**
- * Lip tint (outer lips minus inner mouth) for a natural rosy/red lip look.
- */
 function applyLipTint(outCtx, faces, toPoint, opts) {
   const amount = clamp01(opts.lip ?? 0)
   if (!amount) return
@@ -313,19 +284,18 @@ function applyLipTint(outCtx, faces, toPoint, opts) {
     try {
       outCtx.fill('evenodd')
     } catch {
-      // fallback: fill outer only
+
       outCtx.beginPath()
       traceLandmarks(outCtx, face, LIPS_OUTER, toPoint)
       outCtx.fill()
     }
     outCtx.restore()
 
-    // subtle highlight for fuller look
     if (amount > 0.25) {
       let sx = 0
       let sy = 0
       let n = 0
-      // upper lip area highlight
+
       const top = [0, 37, 39, 40, 185, 61, 146, 91, 181, 84]
       for (const i of top) {
         const p = toPoint(face[i])
@@ -417,7 +387,7 @@ function applyTint(ctx, w, h, tint) {
 }
 
 function applySharpen(outCtx, baseCanvas, w, h, amount, cache) {
-  // Lightweight pseudo-sharpen via unsharp mask approximation with canvas ops
+
   const s = clamp01(amount ?? 0)
   if (!s) return
   const blur = ensureCanvas(cache, 'sharpBlur', w, h)
@@ -428,9 +398,6 @@ function applySharpen(outCtx, baseCanvas, w, h, amount, cache) {
   bctx.drawImage(baseCanvas, 0, 0, w, h)
   bctx.filter = 'none'
 
-  // Unsharp: output = base + s*(base - blur) approximated by overlaying difference
-  // Approximation: draw inverted blur with overlay/soft-light is messy; instead use
-  // a subtle contrast bump on edges by drawing base over blur difference via 'difference' composite into temp.
   const diff = ensureCanvas(cache, 'sharpDiff', w, h)
   const dctx = diff.getContext('2d')
   if (!dctx) return
@@ -447,9 +414,6 @@ function applySharpen(outCtx, baseCanvas, w, h, amount, cache) {
   outCtx.restore()
 }
 
-/**
- * Build a CSS filter string from structured grade params (used as base color grade).
- */
 export function gradeToCss(grade) {
   if (!grade) return 'none'
   if (typeof grade === 'string') return grade
@@ -477,18 +441,6 @@ function createCache() {
   return {}
 }
 
-/**
- * Process/draw a beautified image into ctx at (dx,dy,dw,dh).
- *
- * @param {CanvasRenderingContext2D} ctx destination context
- * @param {CanvasImageSource} source image/video/canvas
- * @param {number} sx,sy,sw,sh source rect (for cover/crop) - pass 0,0,srcW,srcH for full
- * @param {number} dx,dy,dw,dh destination rect in ctx
- * @param {object} filter filter preset (from filters.js)
- * @param {Array} faces faceLandmarksList in normalized source space (0-1 of source)
- * @param {object} options { mirrorX?: boolean } - mirrorX true if source should be treated mirrored (landmarks mapping)
- * @param {object} [cache] optional reusable canvas cache (for realtime)
- */
 export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filter, faces, options = {}, cache) {
   const _cache = cache || createCache()
   const w = Math.max(1, Math.round(dw))
@@ -499,15 +451,11 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
   const beauty = filter?.beauty || {}
   const effects = filter?.effects || {}
   const gradeCss = getGradeCss(filter)
-  // flipSource: actually mirror the drawn pixels (for raw/unmirrored camera frames).
-  // mirrorLandmarks: map landmark X as (1-x) to align with a mirrored image space.
-  // For preview (raw video -> mirrored selfie): flipSource true, mirrorLandmarks true.
-  // For strip (image already mirrored): flipSource false, mirrorLandmarks true.
+
   const flipSource = !!options.flipSource
   const mirrorLandmarks =
     options.mirrorLandmarks != null ? !!options.mirrorLandmarks : !!options.mirrorX
 
-  // Work canvas at processing size (downscaled when quality < 1 for performance)
   const work = ensureCanvas(_cache, 'work', pw, ph)
   const wctx = work.getContext('2d')
   if (!wctx) {
@@ -523,7 +471,6 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     return
   }
 
-  // 1) Base with color grading
   wctx.clearRect(0, 0, pw, ph)
   wctx.save()
   wctx.filter = gradeCss || 'none'
@@ -535,9 +482,6 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
   wctx.restore()
   wctx.filter = 'none'
 
-  // Landmarks are normalized to the full source frame (0..1 over full width/height).
-  // sx,sy,sw,sh define the crop region in that full frame mapped to processing canvas.
-  // mirrorLandmarks flips landmark X to align with mirrored image pixels.
   const fullW = options.srcWFull || (sx + sw) || sw
   const fullH = options.srcHFull || (sy + sh) || sh
   const toPointMapped = (lm) => {
@@ -552,7 +496,6 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     }
   }
 
-  // 2) Skin smoothing & whitening (need base-graded copy and skin mask)
   const needMask =
     faces?.length &&
     ((beauty.smooth ?? 0) > 0 || (beauty.whiten ?? 0) > 0)
@@ -575,7 +518,6 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     }
   }
 
-  // 3) Cheek blush & lip tint (beauty makeup)
   if (faces?.length && (beauty.cheek ?? 0) > 0) {
     applyCheekBlush(wctx, faces, toPointMapped, beauty)
   }
@@ -583,7 +525,6 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     applyLipTint(wctx, faces, toPointMapped, beauty)
   }
 
-  // Snapshot for effects that need current composite (after makeup so glow picks it up)
   const needSnap = (beauty.glow ?? 0) > 0 || (beauty.sharpen ?? 0) > 0
   let snap = null
   if (needSnap) {
@@ -595,12 +536,10 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     }
   }
 
-  // 4) Glow / soft focus
   if ((beauty.glow ?? 0) > 0 && snap) {
     applyGlow(wctx, snap, pw, ph, beauty, _cache)
   }
 
-  // 5) Sharpen
   if ((beauty.sharpen ?? 0) > 0 && snap) {
     const snap2 = ensureCanvas(_cache, 'snap2', pw, ph)
     const sc2 = snap2.getContext('2d')
@@ -611,29 +550,21 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     }
   }
 
-  // 6) Tint overlay
   if (effects.tint) {
     applyTint(wctx, pw, ph, effects.tint)
   }
 
-  // 7) Vignette
   if ((effects.vignette ?? 0) > 0) {
     applyVignette(wctx, pw, ph, effects.vignette)
   }
 
-  // 8) Grain
   if ((effects.grain ?? 0) > 0) {
     applyGrain(wctx, pw, ph, effects.grain)
   }
 
-  // Output to destination (upscale when processed at lower quality)
   ctx.drawImage(work, 0, 0, pw, ph, dx, dy, dw, dh)
 }
 
-/**
- * Convenience: draw beautified full source covering destination rect (like drawCover result area).
- * faces in normalized full-source space.
- */
 export function drawBeautifiedCover(ctx, source, dx, dy, dw, dh, filter, faces, options = {}, cache) {
   const iw = source.videoWidth || source.naturalWidth || source.width || 0
   const ih = source.videoHeight || source.naturalHeight || source.height || 0

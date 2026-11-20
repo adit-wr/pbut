@@ -3,7 +3,6 @@
 @theme {
   --font-sans: 'Inter', 'Helvetica Neue', Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
 
-  /* Countdown pop animation */
   @keyframes countdown-pop {
     0% {
       transform: scale(1.6);
@@ -19,7 +18,6 @@
 
   --animate-countdown: countdown-pop 0.9s ease-out both;
 
-  /* Full-screen shutter flash */
   @keyframes flash-fade {
     from {
       opacity: 1;
@@ -31,7 +29,6 @@
 
   --animate-flash: flash-fade 260ms ease-out both;
 
-  /* Rotating colour-shifting ring for the light / dark toggle */
   @keyframes ring-spin {
     to {
       transform: rotate(360deg);
@@ -65,8 +62,17 @@ body {
   scrollbar-width: none;
 }
 
-/* Fades the right edge of a horizontally scrollable row (colour-agnostic). */
 .fade-right {
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent 100%);
   mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ring-spin,
+  .animate-countdown,
+  .animate-flash,
+  .animate-spin,
+  .animate-pulse {
+    animation: none !important;
+  }
 }

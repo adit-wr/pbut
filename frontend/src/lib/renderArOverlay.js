@@ -1,25 +1,17 @@
 /**
  * Real-3D AR face filters for HTML5 Canvas (no WebGL / no dependencies).
  *
- * How it works
- * ------------
- * 1. Head pose: a full 3-axis rotation (X = right, U = up, F = forward) is
- *    rebuilt from the 3D face landmarks (incl. z) and lightly smoothed, so props
- *    follow yaw / pitch / roll with real perspective.
- * 2. Props are real meshes (lathe, tube, ellipsoid, "puffy" extrusion, faceted
- *    gems) living in head space. Every triangle is transformed, back-face culled,
- *    depth sorted and shaded per frame (diffuse + hemisphere ambient + bounce +
- *    specular + rim + fake metal environment).
- * 3. Parts that swing behind the head are drawn first and then cut by the
- *    head silhouette (an ellipsoid), so ears / wings / orbiting hearts correctly
- *    disappear behind the user's head.
- * 4. Everything is rendered on an off-screen layer and composited with one soft
- *    drop shadow, then animated with time (spinning hearts, flapping wings, …).
+ * Versi SMOOTH:
+ *  - Supersampling adaptif (render 2x lalu diperkecil) -> tepi halus, tidak kotak-kotak
+ *  - Soft tone-mapping (highlight tidak terpotong keras)
+ *  - Siluet kepala lembut saat properti masuk ke belakang kepala
+ *  - Landmark wajah di-smooth adaptif (anti-getar saat diam, responsif saat bergerak)
+ *  - Gerakan sekunder (spring) -> telinga / pita / sayap mengayun saat kepala bergerak
  *
  * Units: 1 model unit = half head width (cheek to cheek / 2). Origin = skull
  * centre, +x = face right axis, +y = up, +z = out of the face.
  *
- * Public API is unchanged:
+ * Public API:
  *   renderArFilter(ctx, faceLandmarksList, toCanvas, filterId)
  */
 
@@ -65,6 +57,7 @@ const mat = (h, o = {}) => ({
   metal: false,
   double: false,
   glow: 0,
+  wrap: 0.22,
   ...o,
 })
 const fur = (h, o = {}) => mat(h, { ks: 0.1, shine: 12, ambient: 0.44, rim: 0.55, ...o })
@@ -77,44 +70,69 @@ const VIEW = [0, 0, -1]
 const HALF = norm(add(LIGHT, VIEW))
 const BOUNCE = norm([0.6, 0.55, -0.3])
 
-function shade(n, m, base) {
-  base = base || m.base
-  const ndl = Math.max(0, dot(n, LIGHT))
-  const ndv = Math.max(0, -n[2])
-  const up = 0.5 - 0.5 * n[1]
+/** Soft shoulder: highlight di atas 180 dikompres halus, bukan dipotong keras. */
+const shoulder = (v) => (v < 180 ? v : 180 + 75 * (1 - Math.exp(-(v - 180) / 75)))
+
+/** Per-pixel Phong-style shading. n = unit camera-space normal (viewer is at -z). Writes rgb into out. */
+function shadeInto(nx, ny, nz, m, br, bg, bb, out) {
+  const raw = nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]
+  const wr = m.wrap
+  const ndl = clamp((raw + wr) / (1 + wr), 0, 1)
+  const ndv = Math.max(0, -nz)
+  const up = 0.5 - 0.5 * ny
   let lit
   if (m.metal) {
-    const e = clamp(0.5 + n[2] * n[1], 0, 1) // reflection elevation (sky = 1)
-    lit = (0.2 + 0.85 * e * e + 0.4 * Math.exp(-Math.pow((e - 0.5) * 8, 2))) * (0.7 + 0.4 * ndl)
+    const e = clamp(0.5 + nz * ny, 0, 1)
+    const d = (e - 0.5) * 8
+    lit = (0.2 + 0.85 * e * e + 0.4 * Math.exp(-d * d)) * (0.7 + 0.4 * ndl)
   } else {
-    lit = m.ambient * (0.55 + 0.45 * up) + (1 - m.ambient) * 1.08 * ndl + 0.12 * Math.max(0, dot(n, BOUNCE))
+    lit = m.ambient * (0.55 + 0.45 * up) + (1 - m.ambient) * 1.08 * ndl * ndl * (3 - 2 * ndl) * 0.5 + (1 - m.ambient) * 0.54 * ndl + 0.12 * Math.max(0, nx * BOUNCE[0] + ny * BOUNCE[1] + nz * BOUNCE[2])
   }
-  const sh = clamp(0.8 - lit, 0, 0.8)
-  let r = base[0] * lit * (1 - 0.25 * sh)
-  let g = base[1] * lit * (1 - 0.2 * sh)
-  let b = base[2] * lit * (1 + 0.1 * sh) + 14 * sh
+  const sh = lit < 0.8 ? 0.8 - lit : 0
+  let r = br * lit * (1 - 0.25 * sh)
+  let g = bg * lit * (1 - 0.2 * sh)
+  let b = bb * lit * (1 + 0.1 * sh) + 14 * sh
   if (m.ks > 0) {
-    const s = m.ks * Math.pow(Math.max(0, dot(n, HALF)), m.shine) * 255
-    if (s > 1) {
-      const sc = m.metal ? lighten(base, 0.55) : [255, 255, 255]
-      r += (sc[0] / 255) * s
-      g += (sc[1] / 255) * s
-      b += (sc[2] / 255) * s
+    const ndh = nx * HALF[0] + ny * HALF[1] + nz * HALF[2]
+    if (ndh > 0.4) {
+      const s = m.ks * Math.pow(ndh, m.shine) * 255
+      if (s > 0.5) {
+        if (m.metal) {
+          r += (br * 0.45 + 140) * (s / 255)
+          g += (bg * 0.45 + 140) * (s / 255)
+          b += (bb * 0.45 + 140) * (s / 255)
+        } else {
+          r += s
+          g += s
+          b += s
+        }
+      }
     }
   }
   if (m.rim) {
-    const rm = m.rim * Math.pow(1 - ndv, 2.4) * (0.7 + 0.55 * up)
-    const rc = m.rimColor || lighten(base, 0.5)
-    r += rc[0] * rm
-    g += rc[1] * rm
-    b += rc[2] * rm
+    const e = 1 - ndv
+    if (e > 0.2) {
+      const rm = m.rim * Math.pow(e, 2.4) * (0.7 + 0.55 * up)
+      const rc = m.rimColor
+      if (rc) {
+        r += rc[0] * rm
+        g += rc[1] * rm
+        b += rc[2] * rm
+      } else {
+        r += (br * 0.5 + 127) * rm
+        g += (bg * 0.5 + 127) * rm
+        b += (bb * 0.5 + 127) * rm
+      }
+    }
   }
   if (m.glow) {
-    r += base[0] * m.glow
-    g += base[1] * m.glow
-    b += base[2] * m.glow
+    r += br * m.glow
+    g += bg * m.glow
+    b += bb * m.glow
   }
-  return `rgb(${clamp(r, 0, 255) | 0},${clamp(g, 0, 255) | 0},${clamp(b, 0, 255) | 0})`
+  out[0] = shoulder(r)
+  out[1] = shoulder(g)
+  out[2] = shoulder(b)
 }
 
 // =============================================================================
@@ -154,6 +172,7 @@ function deform(m, fn) {
 
 /** Surface of revolution around Y. profile = [[r, y], …] bottom → top (counter-clockwise for solids). */
 function lathe(profile, seg = 28, o = {}) {
+  seg = Math.min(72, Math.round(seg * 1.6))
   const np = profile.length
   const V = []
   const N = []
@@ -193,6 +212,8 @@ function lathe(profile, seg = 28, o = {}) {
 }
 
 function ellipsoid(rx, ry, rz, seg = 16, rings = 10, o = {}) {
+  seg = Math.min(56, Math.round(seg * 1.7))
+  rings = Math.min(40, Math.round(rings * 1.6))
   const l0 = o.lat0 ?? -Math.PI / 2
   const l1 = o.lat1 ?? Math.PI / 2
   const V = []
@@ -227,9 +248,32 @@ function ellipsoid(rx, ry, rz, seg = 16, rings = 10, o = {}) {
   return mk(V, N, F, FC)
 }
 
+function densify(path, closed) {
+  const n = path.length
+  if (n >= 30 || n < 2) return path
+  const out = []
+  const P = (i) => (closed ? path[(i + n * 4) % n] : path[clamp(i, 0, n - 1)])
+  const segs = closed ? n : n - 1
+  for (let i = 0; i < segs; i += 1) {
+    const p0 = P(i - 1)
+    const p1 = P(i)
+    const p2 = P(i + 1)
+    const p3 = P(i + 2)
+    for (let k = 0; k < 4; k += 1) {
+      const t = k / 4
+      const t2 = t * t
+      const t3 = t2 * t
+      out.push([0, 1, 2].map((c) => 0.5 * (2 * p1[c] + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)))
+    }
+  }
+  if (!closed) out.push(path[n - 1])
+  return out
+}
+
 /** Sweep a circle along a 3D path (antlers, whiskers, frames, tails…). */
 function tube(path, radius, seg = 8, o = {}) {
-  let pts = path.slice()
+  seg = Math.min(18, Math.max(10, Math.round(seg * 1.5)))
+  let pts = densify(path, !!o.closed).slice()
   let rad = typeof radius === 'function' ? radius : () => radius
   if (o.cap && !o.closed) {
     const t0 = norm(sub(pts[0], pts[1]))
@@ -309,8 +353,8 @@ function polyRadius(poly, c, th) {
 
 /** Pillow-like inflated version of a star-convex 2D polygon (hearts, bow loops, tongues…). */
 function puffy(poly, H, o = {}) {
-  const ang = o.ang || 40
-  const rings = o.rings || 6
+  const ang = Math.min(72, Math.round((o.ang || 40) * 1.4))
+  const rings = Math.min(14, Math.round((o.rings || 6) * 1.7))
   const pw = o.pow || 0.6
   const c = o.center || [
     poly.reduce((s, p) => s + p[0], 0) / poly.length,
@@ -321,7 +365,6 @@ function puffy(poly, H, o = {}) {
   const V = []
   const N = []
   const F = []
-  const idx = (side, k, j) => (side > 0 || k === rings ? 0 : (rings + 1) * ang) + k * ang + j
   for (const side of [1, -1]) {
     for (let k = 0; k <= rings; k += 1) {
       if (side < 0 && k === rings) continue
@@ -338,7 +381,6 @@ function puffy(poly, H, o = {}) {
       }
     }
   }
-  // back vertices were pushed after the front ones but skip rim: reindex faces accordingly
   const frontCount = (rings + 1) * ang
   const bIdx = (k, j) => (k === rings ? rings * ang + j : frontCount + k * ang + j)
   for (let k = 0; k < rings; k += 1) {
@@ -356,7 +398,6 @@ function puffy(poly, H, o = {}) {
       F.push([ba, bd, bb], [ba, bc, bd])
     }
   }
-  void idx
   return mk(V, N, F)
 }
 
@@ -473,42 +514,43 @@ class Scene {
   constructor(g, t) {
     this.g = g
     this.t = t
-    this.back = []
-    this.front = []
+    this.items = [] // rasterised geometry (meshes + sphere impostors)
+    this.under = [] // canvas parts drawn below the geometry (skin decals)
+    this.over = [] // canvas parts drawn above (glows, sparkles, lenses…)
   }
-  push(z, fn, layer, pt) {
+  isBack(z, pt, layer) {
+    if (layer) return layer === 'back'
     const g = this.g
-    // Depth behind the skull centre, ignoring the head-up axis so that the
-    // natural backward lean of landmarks (level face) never pushes
-    // top-of-head props "behind" the head.
     let rel = (z - g.O[2]) / g.u
     if (pt) {
       const d = sub(pt, g.O)
       rel = (d[2] - dot(d, g.U) * g.U[2]) / g.u
     }
-    const isBack = layer ? layer === 'back' : rel > 0.6
-    ;(isBack ? this.back : this.front).push([z, fn])
+    return rel > 0.6
   }
-  run(ctx, occlude) {
-    const draw = (list) => {
-      list.sort((a, b) => b[0] - a[0])
-      list.forEach(([, fn]) => {
-        ctx.save()
-        fn(ctx)
-        ctx.restore()
-      })
-    }
-    draw(this.back)
-    if (occlude && this.back.length) {
-      ctx.save()
-      occlude(ctx)
-      ctx.restore()
-    }
-    draw(this.front)
+  inHead(pt) {
+    const g = this.g
+    const e = g.headEllipse()
+    const q = g.project(pt)
+    const dx = q[0] - e.x
+    const dy = q[1] - e.y
+    const c = Math.cos(e.rot)
+    const s = Math.sin(e.rot)
+    const a = (dx * c + dy * s) / e.r1
+    const b = (-dx * s + dy * c) / e.r2
+    return a * a + b * b < 1
+  }
+  push(z, fn, layer, pt, under = false) {
+    if (pt && this.isBack(z, pt, layer) && this.inHead(pt)) return
+    ;(under ? this.under : this.over).push([z, fn])
   }
 }
 
-function renderMesh(ctx, g, mesh, cam, m, o) {
+/** Queue a mesh. o.face = hide when its local +Y axis points away from the camera (decor on a surface). */
+function drawMesh(S, mesh, tf, m, o = {}) {
+  const g = S.g
+  const cam = g.cam(tf)
+  if (o.face !== undefined && cam.B[2] / cam.k > o.face) return
   const { P, A, B, C, k } = cam
   const { O, D, zref } = g
   const nv = mesh.V.length
@@ -535,124 +577,260 @@ function renderMesh(ctx, g, mesh, cam, m, o) {
       nz[i] = (n[0] * A[2] + n[1] * B[2] + n[2] * C[2]) * ik
     }
   }
-  const list = []
-  for (let f = 0; f < mesh.F.length; f += 1) {
-    const [a, b, c] = mesh.F[f]
-    let tx
-    let ty
-    let tz
-    if (mesh.FN) {
+  let fnx = null
+  let fny = null
+  let fnz = null
+  if (mesh.FN) {
+    const nf = mesh.FN.length
+    fnx = new Float32Array(nf)
+    fny = new Float32Array(nf)
+    fnz = new Float32Array(nf)
+    for (let f = 0; f < nf; f += 1) {
       const n = mesh.FN[f]
-      tx = (n[0] * A[0] + n[1] * B[0] + n[2] * C[0]) * ik
-      ty = (n[0] * A[1] + n[1] * B[1] + n[2] * C[1]) * ik
-      tz = (n[0] * A[2] + n[1] * B[2] + n[2] * C[2]) * ik
-    } else {
-      tx = nx[a] + nx[b] + nx[c]
-      ty = ny[a] + ny[b] + ny[c]
-      tz = nz[a] + nz[b] + nz[c]
-      const l = Math.hypot(tx, ty, tz) || 1
-      tx /= l
-      ty /= l
-      tz /= l
+      fnx[f] = (n[0] * A[0] + n[1] * B[0] + n[2] * C[0]) * ik
+      fny[f] = (n[0] * A[1] + n[1] * B[1] + n[2] * C[1]) * ik
+      fnz[f] = (n[0] * A[2] + n[1] * B[2] + n[2] * C[2]) * ik
     }
-    if (tz > 0.08) {
-      if (!m.double) continue
-      tx = -tx
-      ty = -ty
-      tz = -tz
-    }
-    list.push([(sz[a] + sz[b] + sz[c]) / 3, f, tx, ty, tz])
   }
-  list.sort((p, q) => q[0] - p[0])
-  ctx.lineJoin = 'round'
-  ctx.lineWidth = 0.9
-  const tmp = [0, 0, 0]
-  for (let i = 0; i < list.length; i += 1) {
-    const [, f, tx, ty, tz] = list[i]
-    tmp[0] = tx
-    tmp[1] = ty
-    tmp[2] = tz
-    const col = shade(tmp, m, mesh.FC ? mesh.FC[f] : null)
-    const [a, b, c] = mesh.F[f]
-    ctx.fillStyle = col
-    ctx.strokeStyle = col
-    ctx.beginPath()
-    ctx.moveTo(sx[a], sy[a])
-    ctx.lineTo(sx[b], sy[b])
-    ctx.lineTo(sx[c], sy[c])
-    ctx.closePath()
-    ctx.fill()
-    ctx.stroke()
-  }
-}
-
-/** Queue a mesh. o.face = hide when its local +Y axis points away from the camera (decor on a surface). */
-function drawMesh(S, mesh, tf, m, o = {}) {
-  const g = S.g
-  const cam = g.cam(tf)
-  if (o.face !== undefined && cam.B[2] / cam.k > o.face) return
   const c = mesh.cen
-  const zc = cam.P[2] + c[0] * cam.A[2] + c[1] * cam.B[2] + c[2] * cam.C[2]
-  S.push(zc, (ctx) => renderMesh(ctx, g, mesh, cam, m, o), o.layer,
-    add(cam.P, add(add(mul(cam.A, c[0]), mul(cam.B, c[1])), mul(cam.C, c[2]))))
+  const wc = add(P, add(add(mul(A, c[0]), mul(B, c[1])), mul(C, c[2])))
+  S.items.push({ kind: 0, back: S.isBack(wc[2], wc, o.layer), mesh, m, sx, sy, sz, nx, ny, nz, fnx, fny, fnz })
 }
 
-const ALPHA_V = Math.acos(dot(LIGHT, VIEW))
-const W_DIR = norm(sub(VIEW, mul(LIGHT, dot(LIGHT, VIEW))))
-
-function sphereFill(ctx, x, y, r, m, base) {
-  const hx = x + LIGHT[0] * r * 0.5
-  const hy = y + LIGHT[1] * r * 0.5
-  const gr = ctx.createRadialGradient(hx, hy, 0, x, y, r)
-  const steps = 8
-  for (let i = 0; i <= steps; i += 1) {
-    const t = i / steps
-    const al = t * (ALPHA_V + Math.PI / 2)
-    const n = add(mul(LIGHT, Math.cos(al)), mul(W_DIR, Math.sin(al)))
-    gr.addColorStop(t, shade(n, { ...m, ks: 0 }, base))
-  }
-  ctx.fillStyle = gr
-  ctx.beginPath()
-  ctx.arc(x, y, r, 0, TAU)
-  ctx.fill()
-  if (m.ks > 0.12) {
-    const sxp = x + HALF[0] * r * 0.98
-    const syp = y + HALF[1] * r * 0.98
-    const hr = r * (m.shine > 45 ? 0.26 : 0.4)
-    const sg = ctx.createRadialGradient(sxp, syp, 0, sxp, syp, hr)
-    const a = clamp(m.ks, 0, 1)
-    sg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`)
-    sg.addColorStop(0.45, `rgba(255,255,255,${0.35 * a})`)
-    sg.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = sg
-    ctx.beginPath()
-    ctx.arc(sxp, syp, hr, 0, TAU)
-    ctx.fill()
-  }
-}
-
-/** Sphere impostor (analytic lit sphere); r is in local units of tf. */
+/** Sphere impostor — rasterised per pixel as a perfect sphere (smooth lighting, correct depth). */
 function drawSphere(S, tf, r, m, o = {}) {
   const g = S.g
   const cam = g.cam(tf)
-  const R = r * cam.k
-  S.push(cam.P[2], (ctx) => {
-    const p = g.project(cam.P)
-    sphereFill(ctx, p[0], p[1], R * p[3], m, o.base)
-  }, o.layer, cam.P)
+  const p = g.project(cam.P)
+  S.items.push({
+    kind: 1, back: S.isBack(cam.P[2], cam.P, o.layer), m, base: o.base || m.base,
+    x: p[0], y: p[1], R: r * cam.k * p[3], z: cam.P[2], Rz: r * cam.k,
+  })
 }
 
-/** Flat 2D drawing placed with a 3D frame (1 local unit = tf.s head units). */
+/** Flat 2D drawing placed with a 3D frame. bias > 0 draws under the geometry (skin decals), otherwise over it. */
 function decal(S, tf, fn, o = {}) {
   const g = S.g
   const cam = g.cam(tf)
   const p0 = g.project(cam.P)
   const px = g.project(add(cam.P, cam.A))
   const py = g.project(add(cam.P, cam.B))
-  S.push(cam.P[2] + (o.bias || 0), (ctx) => {
+  const bias = o.bias || 0
+  S.push(cam.P[2] + bias, (ctx) => {
     ctx.transform(px[0] - p0[0], px[1] - p0[1], py[0] - p0[0], py[1] - p0[1], p0[0], p0[1])
     fn(ctx)
-  }, o.layer, cam.P)
+  }, o.layer, cam.P, bias > 0)
+}
+
+// -----------------------------------------------------------------------------
+// software rasteriser (z-buffer + per-pixel normals)
+// -----------------------------------------------------------------------------
+
+const RB = { data: null, zb: null, copy: null, cap: 0, canvas: null }
+const _px = [0, 0, 0]
+
+function getRaster(w, h) {
+  const n = w * h
+  if (!RB.data || RB.cap < n) {
+    RB.cap = Math.ceil(n * 1.3)
+    RB.data = new Uint8ClampedArray(RB.cap * 4)
+    RB.copy = new Uint8ClampedArray(RB.cap * 4)
+    RB.zb = new Float32Array(RB.cap)
+  }
+  RB.data.fill(0, 0, n * 4)
+  RB.zb.fill(Infinity, 0, n)
+  return { w, h, data: RB.data, zb: RB.zb, ox: 0, oy: 0, k: 1 }
+}
+
+function rasMesh(B, it) {
+  const { mesh, m, sx, sy, sz, nx, ny, nz, fnx, fny, fnz } = it
+  const { w, h, data, zb, ox, oy, k } = B
+  const F = mesh.F
+  const FC = mesh.FC
+  const dbl = m.double
+  const flat = !!fnx
+  for (let f = 0; f < F.length; f += 1) {
+    const tri = F[f]
+    const ia = tri[0]
+    const ib = tri[1]
+    const ic = tri[2]
+    const fz = flat ? fnz[f] : (nz[ia] + nz[ib] + nz[ic]) / 3
+    if (fz > 0.08 && !dbl) continue
+    const x0 = (sx[ia] - ox) * k
+    const y0 = (sy[ia] - oy) * k
+    const x1 = (sx[ib] - ox) * k
+    const y1 = (sy[ib] - oy) * k
+    const x2 = (sx[ic] - ox) * k
+    const y2 = (sy[ic] - oy) * k
+    const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)))
+    const maxX = Math.min(w - 1, Math.ceil(Math.max(x0, x1, x2)))
+    const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)))
+    const maxY = Math.min(h - 1, Math.ceil(Math.max(y0, y1, y2)))
+    if (minX > maxX || minY > maxY) continue
+    const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+    if (Math.abs(area) < 1e-5) continue
+    const inv = 1 / area
+    const z0 = sz[ia]
+    const z1 = sz[ib]
+    const z2 = sz[ic]
+    let br = m.base[0]
+    let bg = m.base[1]
+    let bb = m.base[2]
+    if (FC) {
+      const c = FC[f]
+      br = c[0]
+      bg = c[1]
+      bb = c[2]
+    }
+    for (let y = minY; y <= maxY; y += 1) {
+      const py = y + 0.5
+      for (let x = minX; x <= maxX; x += 1) {
+        const px = x + 0.5
+        const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv
+        const w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv
+        const w2 = 1 - w0 - w1
+        if (w0 < -0.002 || w1 < -0.002 || w2 < -0.002) continue
+        const z = w0 * z0 + w1 * z1 + w2 * z2
+        const idx = y * w + x
+        if (z >= zb[idx]) continue
+        let ax
+        let ay
+        let az
+        if (flat) {
+          ax = fnx[f]
+          ay = fny[f]
+          az = fnz[f]
+        } else {
+          ax = w0 * nx[ia] + w1 * nx[ib] + w2 * nx[ic]
+          ay = w0 * ny[ia] + w1 * ny[ib] + w2 * ny[ic]
+          az = w0 * nz[ia] + w1 * nz[ib] + w2 * nz[ic]
+          const l = Math.sqrt(ax * ax + ay * ay + az * az) || 1
+          ax /= l
+          ay /= l
+          az /= l
+        }
+        if (az > 0) {
+          if (!dbl && az > 0.35) continue
+          ax = -ax
+          ay = -ay
+          az = -az
+        }
+        shadeInto(ax, ay, az, m, br, bg, bb, _px)
+        zb[idx] = z
+        const o = idx * 4
+        data[o] = _px[0]
+        data[o + 1] = _px[1]
+        data[o + 2] = _px[2]
+        data[o + 3] = 255
+      }
+    }
+  }
+}
+
+function rasSphere(B, it) {
+  const { m, base } = it
+  const { w, h, data, zb, ox, oy, k } = B
+  const cx = (it.x - ox) * k
+  const cy = (it.y - oy) * k
+  const R = it.R * k
+  if (R < 0.3) return
+  const minX = Math.max(0, Math.floor(cx - R))
+  const maxX = Math.min(w - 1, Math.ceil(cx + R))
+  const minY = Math.max(0, Math.floor(cy - R))
+  const maxY = Math.min(h - 1, Math.ceil(cy + R))
+  const iR = 1 / R
+  for (let y = minY; y <= maxY; y += 1) {
+    const dy = (y + 0.5 - cy) * iR
+    for (let x = minX; x <= maxX; x += 1) {
+      const dx = (x + 0.5 - cx) * iR
+      const r2 = dx * dx + dy * dy
+      if (r2 > 1) continue
+      const nzc = Math.sqrt(1 - r2)
+      const z = it.z - nzc * it.Rz
+      const idx = y * w + x
+      if (z >= zb[idx]) continue
+      shadeInto(dx, dy, -nzc, m, base[0], base[1], base[2], _px)
+      zb[idx] = z
+      const o = idx * 4
+      data[o] = _px[0]
+      data[o + 1] = _px[1]
+      data[o + 2] = _px[2]
+      data[o + 3] = 255
+    }
+  }
+}
+
+/** Cut the head silhouette out of everything drawn so far — with a SOFT edge. */
+function eraseEllipse(B, e) {
+  const { w, h, data, zb, ox, oy, k } = B
+  const cx = (e.x - ox) * k
+  const cy = (e.y - oy) * k
+  const r1 = e.r1 * k
+  const r2 = e.r2 * k
+  const rr = Math.max(r1, r2)
+  const c = Math.cos(e.rot)
+  const s = Math.sin(e.rot)
+  const minX = Math.max(0, Math.floor(cx - rr))
+  const maxX = Math.min(w - 1, Math.ceil(cx + rr))
+  const minY = Math.max(0, Math.floor(cy - rr))
+  const maxY = Math.min(h - 1, Math.ceil(cy + rr))
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const dx = x + 0.5 - cx
+      const dy = y + 0.5 - cy
+      const a = (dx * c + dy * s) / r1
+      const b = (-dx * s + dy * c) / r2
+      const d = a * a + b * b
+      if (d < 1) {
+        const idx = y * w + x
+        const f = d < 0.86 ? 0 : (d - 0.86) / 0.14
+        data[idx * 4 + 3] *= f * f * (3 - 2 * f)
+        if (f === 0) zb[idx] = Infinity
+      }
+    }
+  }
+}
+
+/** Cheap silhouette anti-aliasing (dipakai hanya bila tidak di-supersample). */
+function smoothEdges(B) {
+  const { w, h, data } = B
+  const n = w * h * 4
+  const src = RB.copy
+  src.set(data.subarray(0, n))
+  for (let y = 1; y < h - 1; y += 1) {
+    for (let x = 1; x < w - 1; x += 1) {
+      const idx = y * w + x
+      const a0 = src[idx * 4 + 3]
+      const a1 = src[(idx - 1) * 4 + 3]
+      const a2 = src[(idx + 1) * 4 + 3]
+      const a3 = src[(idx - w) * 4 + 3]
+      const a4 = src[(idx + w) * 4 + 3]
+      if (a0 > 250 && a1 > 250 && a2 > 250 && a3 > 250 && a4 > 250) continue
+      if (a0 === 0 && a1 === 0 && a2 === 0 && a3 === 0 && a4 === 0) continue
+      let sa = 0
+      let sr = 0
+      let sg = 0
+      let sb = 0
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const j = (idx + dy * w + dx) * 4
+          const aj = src[j + 3]
+          if (aj) {
+            sa += aj
+            sr += src[j] * aj
+            sg += src[j + 1] * aj
+            sb += src[j + 2] * aj
+          }
+        }
+      }
+      if (sa === 0) continue
+      const o = idx * 4
+      data[o] = sr / sa
+      data[o + 1] = sg / sa
+      data[o + 2] = sb / sa
+      data[o + 3] = Math.min(255, (sa / 9) * (a0 > 0 ? 1.15 : 1))
+    }
+  }
 }
 
 function glint(c, x, y, r, a = 1) {
@@ -712,21 +890,47 @@ function blushAt(S, g, i, r = 0.34, col = [255, 110, 150], a = 0.5) {
 }
 
 // =============================================================================
-// face geometry + head pose
+// face geometry + head pose (dengan smoothing adaptif + gerakan sekunder)
 // =============================================================================
 
 const POSE = []
+const LMS = []
 
 function buildFace(lms, toCanvas, idx) {
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
   const c0 = toCanvas(0, 0)
   const c1 = toCanvas(1, 0)
   const zs = Math.abs(c1.x - c0.x) || 1
+  const la = lms[234]
+  const lb = lms[454]
+  if (!la || !lb) return null
+  const ca = toCanvas(la.x, la.y)
+  const cb = toCanvas(lb.x, lb.y)
+  const fw = Math.hypot(cb.x - ca.x, cb.y - ca.y) || 100
+
+  // --- smoothing adaptif per-landmark (gaya One-Euro): diam = halus, cepat = responsif
+  const store = LMS[idx] || (LMS[idx] = { t: 0, p: new Map() })
+  const fdt = clamp((now - store.t) / 1000, 0.004, 0.4)
+  const fresh = store.t > 0 && fdt < 0.25
+  if (!fresh) store.p.clear()
+  store.t = now
   const P = (i) => {
     const l = lms[i]
     if (!l) return null
+    const e = store.p.get(i)
+    if (e && e.stamp === now) return e.v
     const c = toCanvas(l.x, l.y)
-    return [c.x, c.y, (l.z || 0) * zs]
+    const raw = [c.x, c.y, (l.z || 0) * zs]
+    let v = raw
+    if (e && fresh) {
+      const speed = Math.hypot(raw[0] - e.v[0], raw[1] - e.v[1]) / (fw * fdt) // lebar-wajah / detik
+      const tau = 0.14 - 0.125 * smooth(0.05, 1.2, speed)
+      v = lerp3(e.v, raw, 1 - Math.exp(-fdt / tau))
+    }
+    store.p.set(i, { v, stamp: now })
+    return v
   }
+
   const cheekL = P(234)
   const cheekR = P(454)
   const forehead = P(10)
@@ -747,28 +951,50 @@ function buildFace(lms, toCanvas, idx) {
   Ur = norm(Ur)
   let U = norm(sub(Ur, mul(X, dot(Ur, X))))
   const prev = POSE[idx]
-  if (prev) {
-    X = norm(lerp3(prev.X, X, 0.55))
-    U = norm(lerp3(prev.U, U, 0.55))
+  const dt = prev ? clamp((now - prev.t) / 1000, 0.004, 0.4) : 1
+  const live = !!prev && dt < 0.25
+  if (live) {
+    const speed = (len(sub(X, prev.X)) + len(sub(U, prev.U))) / dt
+    const tau = 0.1 - 0.082 * smooth(0.25, 2.5, speed)
+    const kr = 1 - Math.exp(-dt / tau)
+    X = norm(lerp3(prev.X, X, kr))
+    U = norm(lerp3(prev.U, U, kr))
     U = norm(sub(U, mul(X, dot(U, X))))
   }
-  POSE[idx] = { X, U }
   let F = norm(cross(X, U))
   if (F[2] > 0) F = mul(F, -1) // always points toward the camera
 
-  const u = Math.max(w3, w2) / 2
-  const O = sub(eyeMid, mul(F, 0.8 * u))
+  const kp = 1 - Math.exp(-dt / 0.04)
+  let u = Math.max(w3, w2) / 2
+  if (live) u = prev.u + (u - prev.u) * kp
+  let O = sub(eyeMid, mul(F, 0.8 * u))
+  if (live) O = lerp3(prev.O, O, kp)
   const toM = (p) => {
     const d = sub(p, O)
     return [dot(d, X) / u, dot(d, U) / u, dot(d, F) / u]
   }
-  const top = clamp(toM(forehead)[1] + 0.32, 1.0, 2.0)
+  let top = clamp(toM(forehead)[1] + 0.32, 1.0, 2.0)
+  if (live) top = prev.top + (top - prev.top) * (1 - Math.exp(-dt / 0.15))
+
+  // --- gerakan sekunder: pegas teredam yang digerakkan kecepatan kepala (radian)
+  let sw = [0, 0]
+  let sv = [0, 0]
+  if (live && prev.sw) {
+    const d = sub(O, prev.O)
+    const h = Math.min(dt, 0.033)
+    const tx = clamp((-dot(d, X) / (u * dt)) * 0.1, -0.6, 0.6)
+    const ty = clamp((-dot(d, U) / (u * dt)) * 0.1, -0.6, 0.6)
+    sv = [prev.sv[0] + ((tx - prev.sw[0]) * 90 - prev.sv[0] * 11) * h, prev.sv[1] + ((ty - prev.sw[1]) * 90 - prev.sv[1] * 11) * h]
+    sw = [clamp(prev.sw[0] + sv[0] * h, -0.8, 0.8), clamp(prev.sw[1] + sv[1] * h, -0.8, 0.8)]
+  }
+  POSE[idx] = { X, U, u, O, top, t: now, sw, sv }
+
   const faceH = len(sub(forehead, chin)) || u * 2.7
   const gap = len(sub(P(14) || chin, P(13) || chin)) / faceH
   const open = clamp((gap - 0.02) / 0.07, 0, 1)
 
   const g = {
-    O, X, U, F, u, zref: eyeMid[2], D: u * 7, top,
+    O, X, U, F, u, zref: eyeMid[2], D: u * 7, top, sway: sw,
     rx: 1.02, rz: 1.1, ry: 1.45, cy: top - 1.45,
     open, facing: clamp(-F[2], -1, 1),
     eL: toM(eyeA), eR: toM(eyeB),
@@ -807,7 +1033,7 @@ function buildFace(lms, toCanvas, idx) {
 }
 
 // =============================================================================
-// off-screen layer + compositing
+// off-screen layer + compositing (supersampling adaptif)
 // =============================================================================
 
 let LAYER = null
@@ -821,33 +1047,27 @@ function getLayer(cv) {
   return LAYER
 }
 
+const MAX_RASTER_PIXELS = 900000
+let QS = 2 // faktor supersampling adaptif (1..2), turun otomatis bila perangkat berat
+
 function drawFaceScene(ctx, g, time, renderer) {
-  const S = new Scene(g, time)
-  renderer(S, g)
-  const occlude = (c) => {
-    const e = g.headEllipse()
-    c.globalCompositeOperation = 'destination-out'
-    c.fillStyle = '#000'
-    c.beginPath()
-    c.ellipse(e.x, e.y, e.r1, e.r2, e.rot, 0, TAU)
-    c.fill()
-  }
-  const t = ctx.getTransform ? ctx.getTransform() : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
-  const sc = Math.abs(t.a) || 1
   const cv = ctx.canvas
   const layer = cv && getLayer(cv)
-  if (!layer) {
-    S.run(ctx, null)
-    return
-  }
+  if (!layer || typeof document === 'undefined') return
+  const S = new Scene(g, time)
+  renderer(S, g)
+  const t = ctx.getTransform ? ctx.getTransform() : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+  const sc = Math.abs(t.a) || 1
   // Region around the head in user space → device pixels (works with mirrored / dpr-scaled contexts)
   const half = g.u * 4.6
-  const ux0 = g.O[0] - half
-  const uy0 = g.O[1] - half
-  const dxa = ux0 * t.a + t.e
-  const dxb = (ux0 + half * 2) * t.a + t.e
-  const dya = uy0 * t.d + t.f
-  const dyb = (uy0 + half * 2) * t.d + t.f
+  const rx0 = g.O[0] - half
+  const ry0 = g.O[1] - half
+  const rx1 = g.O[0] + half
+  const ry1 = g.O[1] + half
+  const dxa = rx0 * t.a + t.e
+  const dxb = rx1 * t.a + t.e
+  const dya = ry0 * t.d + t.f
+  const dyb = ry1 * t.d + t.f
   const x0 = Math.max(0, Math.floor(Math.min(dxa, dxb)))
   const y0 = Math.max(0, Math.floor(Math.min(dya, dyb)))
   const x1 = Math.min(layer.width, Math.ceil(Math.max(dxa, dxb)))
@@ -862,9 +1082,84 @@ function drawFaceScene(ctx, g, time, renderer) {
   lc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f)
   lc.save()
   lc.beginPath()
-  lc.rect(ux0, uy0, half * 2, half * 2)
+  lc.rect(rx0, ry0, half * 2, half * 2)
   lc.clip()
-  S.run(lc, occlude)
+  const run = (list) => {
+    list.sort((a, b) => b[0] - a[0])
+    list.forEach(([, fn]) => {
+      lc.save()
+      fn(lc)
+      lc.restore()
+    })
+  }
+  run(S.under)
+
+  // ---- rasterise all meshes + spheres with a z-buffer
+  const items = S.items
+  if (items.length) {
+    let bx0 = Infinity
+    let by0 = Infinity
+    let bx1 = -Infinity
+    let by1 = -Infinity
+    items.forEach((it) => {
+      if (it.kind === 1) {
+        bx0 = Math.min(bx0, it.x - it.R)
+        bx1 = Math.max(bx1, it.x + it.R)
+        by0 = Math.min(by0, it.y - it.R)
+        by1 = Math.max(by1, it.y + it.R)
+      } else {
+        for (let i = 0; i < it.sx.length; i += 1) {
+          if (it.sx[i] < bx0) bx0 = it.sx[i]
+          if (it.sx[i] > bx1) bx1 = it.sx[i]
+          if (it.sy[i] < by0) by0 = it.sy[i]
+          if (it.sy[i] > by1) by1 = it.sy[i]
+        }
+      }
+    })
+    const ux0 = Math.max(rx0, bx0 - 3)
+    const uy0 = Math.max(ry0, by0 - 3)
+    const ux1 = Math.min(rx1, bx1 + 3)
+    const uy1 = Math.min(ry1, by1 + 3)
+    if (ux1 - ux0 > 2 && uy1 - uy0 > 2) {
+      const t0 = typeof performance !== 'undefined' ? performance.now() : 0
+      const area = (ux1 - ux0) * (uy1 - uy0)
+      const k = Math.min(sc * QS, Math.sqrt(MAX_RASTER_PIXELS / area)) // supersample
+      const bw = Math.max(2, Math.ceil((ux1 - ux0) * k))
+      const bh = Math.max(2, Math.ceil((uy1 - uy0) * k))
+      const B = getRaster(bw, bh)
+      B.ox = ux0
+      B.oy = uy0
+      B.k = k
+      let anyBack = false
+      items.forEach((it) => {
+        if (!it.back) return
+        anyBack = true
+        if (it.kind === 1) rasSphere(B, it)
+        else rasMesh(B, it)
+      })
+      if (anyBack) eraseEllipse(B, g.headEllipse())
+      items.forEach((it) => {
+        if (it.back) return
+        if (it.kind === 1) rasSphere(B, it)
+        else rasMesh(B, it)
+      })
+      if (k < sc * 1.4) smoothEdges(B) // blur tepi hanya jika tidak di-supersample
+      if (!RB.canvas) RB.canvas = document.createElement('canvas')
+      if (RB.canvas.width !== bw || RB.canvas.height !== bh) {
+        RB.canvas.width = bw
+        RB.canvas.height = bh
+      }
+      RB.canvas.getContext('2d').putImageData(new ImageData(RB.data.subarray(0, bw * bh * 4), bw, bh), 0, 0)
+      lc.imageSmoothingEnabled = true
+      lc.imageSmoothingQuality = 'high'
+      lc.drawImage(RB.canvas, ux0, uy0, bw / k, bh / k)
+      if (t0) {
+        const ms = performance.now() - t0
+        QS = clamp(QS + (ms > 20 ? -0.08 : ms < 9 ? 0.04 : 0), 1, 2) // otomatis turun jika berat
+      }
+    }
+  }
+  run(S.over)
   lc.restore()
 
   ctx.save()
@@ -889,7 +1184,6 @@ const DARK_LINE = mat('#3a2418', { ks: 0.2, ambient: 0.5 })
 const SATIN_PINK = mat('#ff5fa8', { ks: 0.85, shine: 55, ambient: 0.34, rim: 0.5 })
 const GOLD = gold()
 const GREEN_LEAF = mat('#34b25a', { ks: 0.35, shine: 24, ambient: 0.4, rim: 0.4, double: true })
-const RED_GLOSS = gloss('#e11d48', { rim: 0.55, rimColor: [255, 170, 170] })
 
 const hearth = (pts = 56) => {
   const poly = []
@@ -900,17 +1194,14 @@ const hearth = (pts = 56) => {
   return poly
 }
 
-const smooth = (a, b, x) => {
+function smooth(a, b, x) {
   const t = clamp((x - a) / (b - a), 0, 1)
   return t * t * (3 - 2 * t)
 }
 
 // =============================================================================
-// the 20 renderers
+// the renderers
 // =============================================================================
-
-
-// ---- helpers used by the Photo-Booth style filters --------------------------
 
 const heartMesh = () => cache('heart', () => puffy(hearth(), 0.3, { center: [0, 0.05], ang: 44, rings: 7, pow: 0.55 }))
 const HEART_COLS = ['#ff3d71', '#ff7aa8', '#ff9ec4', '#e11d48', '#ff5c8a', '#ffb3cf', '#ff2d6a']
@@ -977,7 +1268,7 @@ function crystal(c, r, rot) {
 }
 
 const RENDERERS_3D = {
-  // 1. Puppy 🐶 — floppy furry ears, glossy nose, lolling tongue
+  // 1. Puppy 🐶 — telinga menggantung mengayun, hidung glossy, lidah
   puppy(S, g) {
     const T = g.top
     const earMesh = cache('puppyEar', () =>
@@ -991,23 +1282,21 @@ const RENDERERS_3D = {
     )
     const earMat = fur('#8a4a1d', { ambient: 0.4 })
     ;[-1, 1].forEach((sd) => {
-      const tf = frame([sd * 0.98, T - 0.85, -0.05], [-sd * 0.28, 1, 0], [sd * 0.9, 0, 0.45], 0.85)
+      const tf = frame([sd * 0.98, T - 0.85, -0.05], [-sd * 0.28, 1, 0], [sd * 0.9, 0, 0.45], 0.85).rz(g.sway[0] * 0.9)
       drawMesh(S, earMesh, tf, earMat)
       drawMesh(S, innerMesh, tf.go(0, -0.05, 0.115), PINK_IN)
     })
-    // brown eye patch
     const e = g.eR
     softBlob(S, [e[0] * 1.02, e[1] + 0.02, e[2] + 0.02], 0.42, 0.36, [106, 58, 26], 0.8, 0.35, { bias: 3 })
     const n = g.at(1)
     drawSphere(S, at([n[0], n[1] - 0.01, n[2] + 0.05]), 0.17, NOSE_BLACK)
-    // tongue
     const long = g.open > 0.45
     const L = long ? 0.62 : 0.4
     const tongue = cache(`tongue${long}`, () =>
       puffy([[-0.16, 0], [0.16, 0], [0.19, -0.35 * L], [0.15, -0.75 * L], [0, -L], [-0.15, -0.75 * L], [-0.19, -0.35 * L]], 0.07, { center: [0, -0.45 * L], ang: 30, rings: 5 }),
     )
     const m14 = g.at(14)
-    const ttf = at([m14[0], m14[1] + 0.03, m14[2] + 0.02]).rx(-0.22)
+    const ttf = at([m14[0], m14[1] + 0.03, m14[2] + 0.02]).rx(-0.22).rz(g.sway[0] * 0.5)
     drawMesh(S, tongue, ttf, gloss('#ff6f91', { ks: 0.6, shine: 30, rim: 0.4 }))
     decal(S, ttf.go(0, 0, 0.075), (c) => {
       c.strokeStyle = 'rgba(150,20,60,0.55)'
@@ -1020,9 +1309,8 @@ const RENDERERS_3D = {
     }, { bias: -1 })
   },
 
-  // 2. Kitty 🐱 — pointed fluffy ears, gem nose, 3D whiskers
+  // 2. Kitty 🐱
   kitty(S, g) {
-    const T = g.top
     const ear = cache('catEar', () =>
       deform(lathe([[0.4, 0], [0.36, 0.22], [0.2, 0.52], [0.0, 0.78]], 16), (v) => [v[0], v[1], v[2] * 0.42]),
     )
@@ -1030,14 +1318,13 @@ const RENDERERS_3D = {
     const furW = fur('#f4f1ff', { ambient: 0.5 })
     ;[-1, 1].forEach((sd) => {
       const p = g.ep(sd * 0.62, 0.1, -0.06)
-      const tf = frame(p, [sd * 0.3, 1, -0.1], [0, 0, 1], 1)
+      const tf = frame(p, [sd * 0.3, 1, -0.1], [0, 0, 1], 1).rz(-g.sway[0] * 0.35)
       drawMesh(S, ear, tf, furW)
       drawMesh(S, earIn, tf.go(0, 0.02, 0.1).sc(0.8), fur('#ff7fb0', { ambient: 0.5 }))
     })
     const n = g.at(1)
     const ntf = at([n[0], n[1] - 0.01, n[2] + 0.04])
-    drawMesh(S, cache('catNose', () => deform(ellipsoid(0.16, 0.11, 0.1, 14, 9), (v) => [v[0], v[1] + (v[1] < 0 ? 0 : 0), v[2]])), ntf, NOSE_PINK)
-    // whiskers
+    drawMesh(S, cache('catNose', () => ellipsoid(0.16, 0.11, 0.1, 14, 9)), ntf, NOSE_PINK)
     const wm = mat('#ffffff', { ks: 0.5, shine: 24, ambient: 0.7, rim: 0.4 })
     ;[205, 425].forEach((idx) => {
       const p = g.at(idx)
@@ -1052,16 +1339,15 @@ const RENDERERS_3D = {
           }
           return tube(pts, (t) => 0.02 * (1 - t * 0.8) + 0.004, 6, { cap: true })
         })
-        drawMesh(S, mesh, at([p[0] + sd * 0.1, p[1] + 0.02, p[2] + 0.04]), wm, { layer: 'front' })
+        drawMesh(S, mesh, at([p[0] + sd * 0.1, p[1] + 0.02, p[2] + 0.04]).rz(g.sway[0] * 0.25), wm, { layer: 'front' })
       })
     })
     blushAt(S, g, 205, 0.32, [255, 120, 170], 0.45)
     blushAt(S, g, 425, 0.32, [255, 120, 170], 0.45)
   },
 
-  // 3. Bunny 🐰 — tall ears (one cheekily floppy), teeth, pink nose
+  // 3. Bunny 🐰
   bunny(S, g) {
-    const T = g.top
     const earOut = cache('bunnyEarOut', () => deform(ellipsoid(0.21, 0.98, 0.09, 18, 14, { oy: 0.98 }), (v) => [v[0], v[1], v[2] - 0.18 * (v[1] / 1.96) ** 2]))
     const earIn = cache('bunnyEarIn', () => deform(ellipsoid(0.12, 0.76, 0.04, 14, 12, { oy: 0.92 }), (v) => [v[0], v[1], v[2] - 0.18 * (v[1] / 1.96) ** 2]))
     const flop = (v) => {
@@ -1073,21 +1359,20 @@ const RENDERERS_3D = {
     ;[-1, 1].forEach((sd) => {
       const floppy = sd > 0
       const p = g.ep(sd * 0.44, -0.05, -0.08)
-      const tf = frame(p, [sd * (floppy ? 0.18 : 0.12), 1, -0.08], [0, 0, 1], 0.95)
+      const tf = frame(p, [sd * (floppy ? 0.18 : 0.12), 1, -0.08], [0, 0, 1], 0.95).rz(-g.sway[0] * (floppy ? 1.1 : 0.6))
       drawMesh(S, floppy ? earFlopOut : earOut, tf, WHITE_FUR)
       drawMesh(S, floppy ? earFlopIn : earIn, tf.go(0, 0, 0.075), fur('#ff8fb0', { ambient: 0.5 }))
     })
     const n = g.at(1)
     drawSphere(S, at([n[0], n[1], n[2] + 0.05]), 0.12, NOSE_PINK)
-    // buck teeth
     const m0 = g.at(0)
-    const tooth = cache('tooth', () => deform(ellipsoid(0.08, 0.11, 0.04, 12, 8, { oy: -0.1 }), (v) => v))
+    const tooth = cache('tooth', () => ellipsoid(0.08, 0.11, 0.04, 12, 8, { oy: -0.1 }))
     ;[-0.07, 0.07].forEach((dx) => drawMesh(S, tooth, at([m0[0] + dx, m0[1] - 0.04, m0[2] + 0.02]), mat('#ffffff', { ks: 0.5, ambient: 0.62, rim: 0.2 })))
     blushAt(S, g, 205, 0.34, [255, 120, 170], 0.5)
     blushAt(S, g, 425, 0.34, [255, 120, 170], 0.5)
   },
 
-  // 4. Teddy bear 🐻 — round fluffy ears, cream muzzle, little smile
+  // 4. Teddy bear 🐻
   bear(S, g) {
     const brown = fur('#8a5226', { ambient: 0.42 })
     ;[-1, 1].forEach((sd) => {
@@ -1101,13 +1386,12 @@ const RENDERERS_3D = {
     drawMesh(S, muz, at(mz), fur('#f0d9b0', { ambient: 0.5, ks: 0.14 }))
     const zAt = (x, y) => mz[2] + 0.3 * Math.sqrt(Math.max(0.02, 1 - (x / 0.5) ** 2 - (y / 0.36) ** 2))
     drawMesh(S, cache('bearNose', () => ellipsoid(0.17, 0.12, 0.1, 14, 10)), at([mz[0], mz[1] + 0.1, zAt(0, 0.1) - 0.02]), NOSE_BLACK)
-    // smile "ω"
     const smile = cache('bearSmile', () => {
       const pts = []
       for (let k = 0; k <= 20; k += 1) {
         const t = k / 20
         const x = (t - 0.5) * 0.36
-        const y = -0.1 - 0.07 * Math.sin(t * TAU * 1 + Math.PI) * 0 - 0.07 * Math.abs(Math.sin(t * Math.PI * 2)) * 0.9
+        const y = -0.1 - 0.07 * Math.abs(Math.sin(t * Math.PI * 2)) * 0.9
         pts.push([x, y, 0])
       }
       return tube(pts, 0.018, 6, { cap: true })
@@ -1118,19 +1402,17 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.3, [255, 120, 120], 0.4)
   },
 
-  // 5. Froggy 🐸 — bulging googly eyes on the head
+  // 5. Froggy 🐸
   froggy(S, g) {
     const green = gloss('#3fb04e', { ks: 0.55, shine: 34, rim: 0.5, rimColor: [190, 255, 170] })
     const spot = mat('#2b8a3c', { ks: 0.2 })
     ;[-1, 1].forEach((sd) => {
       const p = g.ep(sd * 0.56, 0.12, 0.12)
       drawSphere(S, at(p), 0.5, green)
-      // eyeball
       const eb = [p[0], p[1] + 0.03, p[2] + 0.27]
       drawSphere(S, at(eb), 0.36, mat('#ffffff', { ks: 0.7, shine: 60, ambient: 0.55, rim: 0.2 }))
       drawSphere(S, at([eb[0] + sd * 0.02, eb[1] - 0.03, eb[2] + 0.28]), 0.18, NOSE_BLACK)
       drawSphere(S, at([eb[0] - 0.05 + sd * 0.02, eb[1] + 0.03, eb[2] + 0.4]), 0.045, mat('#fff', { ks: 0, ambient: 1.2 }))
-      // eyelid ridge
       drawMesh(S, cache('lid', () => ellipsoid(0.4, 0.4, 0.4, 20, 8, { lat0: 0.05, lat1: Math.PI / 2 })), at([eb[0], eb[1] + 0.03, eb[2] - 0.06]).rx(-0.55), green, { layer: 'front' })
       drawSphere(S, at([p[0] + sd * 0.3, p[1] + 0.18, p[2] - 0.08]), 0.1, spot)
       drawSphere(S, at([p[0] - sd * 0.28, p[1] + 0.3, p[2] - 0.1]), 0.07, spot)
@@ -1139,7 +1421,7 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.3, [255, 130, 150], 0.5)
   },
 
-  // 6. Panda 🐼 — ears, eye patches, bamboo sprig
+  // 6. Panda 🐼
   panda(S, g) {
     const black = fur('#1d2432', { ambient: 0.34, rimColor: [160, 180, 215] })
     ;[-1, 1].forEach((sd) => {
@@ -1147,31 +1429,28 @@ const RENDERERS_3D = {
       drawSphere(S, at(p), 0.34, black)
       drawSphere(S, at([p[0], p[1], p[2] + 0.2]), 0.18, fur('#4b566b', { ambient: 0.4 }))
     })
-    ;[g.eL, g.eR].forEach((e, i) => {
+    ;[g.eL, g.eR].forEach((e) => {
       const sd = e[0] < 0 ? -1 : 1
       softBlob(S, [e[0] + sd * 0.06, e[1] - 0.04, e[2] + 0.02], 0.46, 0.34, [20, 26, 38], 0.92, sd * -0.55, { bias: 5 })
-      void i
     })
     const n = g.at(1)
-    drawMesh(S, cache('pandaNose', () => ellipsoid(0.17, 0.12, 0.1, 14, 10)), at([n[0], n[1] - 0.0, n[2] + 0.05]), NOSE_BLACK)
-    // bamboo sprig tucked at the side
+    drawMesh(S, cache('pandaNose', () => ellipsoid(0.17, 0.12, 0.1, 14, 10)), at([n[0], n[1], n[2] + 0.05]), NOSE_BLACK)
     const stalk = cache('bamboo', () => tube([[0, 0, 0], [0.03, 0.5, 0], [0.06, 1.0, 0]], 0.055, 8, { cap: true }))
     const bam = mat('#7ccf6a', { ks: 0.5, shine: 30, rim: 0.4 })
     const base = g.ep(-0.56, 0.1, -0.04)
-    const tf = frame(base, [-0.25, 1, 0.05])
+    const tf = frame(base, [-0.25, 1, 0.05]).rz(-g.sway[0] * 0.3)
     drawMesh(S, stalk, tf, bam)
     ;[0.33, 0.68].forEach((y) => drawMesh(S, cache('bamNode', () => lathe([[0.062, -0.012], [0.075, 0], [0.062, 0.012]], 10)), tf.go(0.03 * (y / 0.5), y, 0), mat('#4d9a45', { ks: 0.3 })))
     ;[[0.0, 0.9, 1.1, 1], [0.0, 0.75, 1.2, -1]].forEach(([, y, ang, sd]) => {
       const lf = cache('bamLeaf', () => ellipsoid(0.07, 0.34, 0.012, 10, 6, { oy: 0.34 }))
-      drawMesh(S, lf, tf.go(0.05, y, 0).rz(-sd * ang), GREEN_LEAF)
+      drawMesh(S, lf, tf.go(0.05, y, 0).rz(-sd * ang + g.sway[0] * 0.5 * sd), GREEN_LEAF)
     })
     blushAt(S, g, 205, 0.3, [255, 130, 140], 0.4)
     blushAt(S, g, 425, 0.3, [255, 130, 140], 0.4)
   },
 
-  // 7. Reindeer 🦌 — branching antlers, glowing red nose, jingle ornaments
+  // 7. Reindeer 🦌
   reindeer(S, g) {
-    const T = g.top
     const antlerMat = mat('#c6a066', { ks: 0.25, shine: 18, ambient: 0.4, rim: 0.4 })
     const antler = (sd) =>
       cache(`antler${sd}`, () => {
@@ -1198,13 +1477,12 @@ const RENDERERS_3D = {
       })
     ;[-1, 1].forEach((sd) => {
       const p = g.ep(sd * 0.5, -0.1, -0.05)
-      const tf = frame(p, [sd * 0.3, 1, -0.2], [0, 0, 1], 0.88)
+      const tf = frame(p, [sd * 0.3, 1, -0.2], [0, 0, 1], 0.88).rz(-g.sway[0] * 0.3)
       antler(sd).forEach((mesh) => drawMesh(S, mesh, tf, antlerMat))
       const ball = tf.go(sd * 0.65, 1.1, 0.12)
       drawSphere(S, ball, 0.07, gloss(sd < 0 ? '#e11d48' : '#2fa84f', { rim: 0.5 }))
-      // small ears
       const ep = g.ep(sd * 0.98, 0, -0.18)
-      const etf = frame(ep, [sd * 0.9, 0.55, 0.0], [0, 0, 1], 1)
+      const etf = frame(ep, [sd * 0.9, 0.55, 0.0], [0, 0, 1], 1).rz(g.sway[0] * 0.5)
       drawMesh(S, cache('deerEar', () => ellipsoid(0.17, 0.4, 0.07, 14, 8, { oy: 0.2 })), etf, fur('#8a5a30', { ambient: 0.42 }))
       drawMesh(S, cache('deerEarIn', () => ellipsoid(0.09, 0.28, 0.03, 12, 8, { oy: 0.22 })), etf.go(0, 0, 0.065), PINK_IN)
     })
@@ -1214,10 +1492,10 @@ const RENDERERS_3D = {
     drawSphere(S, at([n[0], n[1] - 0.01, n[2] + 0.1]), 0.23, gloss('#f0163f', { rim: 0.6, rimColor: [255, 150, 150], glow: 0.1 }))
   },
 
-  // 8. Crown 👑 — gold crown with velvet dome, jewels and pearls
+  // 8. Crown 👑
   crown(S, g) {
     const T = g.top
-    const tf = frame([0, T - 0.45, -0.05], [0, 1, -0.06])
+    const tf = frame([0, T - 0.45, -0.05], [0, 1, -0.06]).rz(-g.sway[0] * 0.15)
     const band = cache('crownBand', () => lathe([[0.76, 0.0], [0.82, 0.0], [0.86, 0.04], [0.86, 0.3], [0.82, 0.34], [0.76, 0.34]], 40))
     drawMesh(S, band, tf, GOLD)
     const dome = cache('crownDome', () => {
@@ -1226,7 +1504,7 @@ const RENDERERS_3D = {
         const a = (i / 8) * (Math.PI / 2)
         prof.push([0.74 * Math.cos(a), 0.3 + 0.5 * Math.sin(a)])
       }
-      return lathe(prof.slice().reverse().map((p) => p).reverse(), 30)
+      return lathe(prof.slice().reverse().reverse(), 30)
     })
     drawMesh(S, dome, tf, fur('#b3122e', { ks: 0.4, shine: 14, ambient: 0.4, rim: 0.9, rimColor: [255, 110, 120] }))
     const spike = cache('crownSpike', () => lathe([[0.0, 0], [0.13, 0], [0.1, 0.18], [0.04, 0.42], [0.0, 0.52]], 12))
@@ -1238,7 +1516,6 @@ const RENDERERS_3D = {
       drawMesh(S, spike, hgt === 1 ? stf : stf.sc(hgt), GOLD)
       drawSphere(S, stf.go(0, 0.52 * hgt + 0.04, 0), 0.06, gloss(i % 2 ? '#fff0f6' : '#fff6d6', { ks: 0.9, rim: 0.3 }))
     }
-    // jewels + pearls on the band
     ;[[-0.62, '#e11d48', 0.075], [0, '#2563eb', 0.1], [0.62, '#10b981', 0.075]].forEach(([a, col, r]) => {
       drawSphere(S, tf.go(0.87 * Math.sin(a), 0.18, 0.87 * Math.cos(a)), r, gloss(col, { rim: 0.6, ks: 1 }))
     })
@@ -1250,7 +1527,7 @@ const RENDERERS_3D = {
     sparkleAt(S, tf.go(0.0, 0.62, 0.0).p, 0.12, S.t, 0, [255, 235, 160])
   },
 
-  // 9. Flower wreath 🌸 — vine ring with layered 3D blossoms
+  // 9. Flower wreath 🌸
   flower_crown(S, g) {
     const T = g.top
     const yr = T - 0.58
@@ -1285,11 +1562,11 @@ const RENDERERS_3D = {
     }
   },
 
-  // 10. Angel 😇 — glowing halo + flapping feather wings
+  // 10. Angel 😇 — halo + sayap mengepak dan mengayun
   angel(S, g) {
     const T = g.top
     const bob = Math.sin(S.t * 2) * 0.05
-    const tf = frame([0, T + 0.35 + bob, -0.12], [0, 1, -0.2])
+    const tf = frame([0, T + 0.35 + bob, -0.12], [0, 1, -0.2]).rz(-g.sway[0] * 0.25)
     softBlob(S, tf.p, 1.1, 0.5, [255, 214, 90], 0.5, 0, { add: true, bias: -20 })
     const ring = cache('halo', () => {
       const pts = []
@@ -1297,14 +1574,13 @@ const RENDERERS_3D = {
       return tube(pts, 0.075, 12, { closed: true, up: [0, 1, 0] })
     })
     drawMesh(S, ring, tf, mat('#ffd54a', { ks: 0.95, shine: 36, ambient: 0.5, rim: 0.7, rimColor: [255, 250, 190], glow: 0.35 }), { layer: 'front' })
-    // wings
     const feather = cache('feather', () => deform(ellipsoid(0.12, 0.6, 0.035, 12, 9, { oy: 0.6 }), (v) => [v[0] + 0.12 * (v[1] / 1.2) ** 2, v[1], v[2]]))
     const flap = Math.sin(S.t * 3.2) * 0.1
     ;[-1, 1].forEach((sd) => {
       const base = [sd * 0.95, T - 0.8, -0.55]
       const lens = [0.9, 1.12, 1.15, 1.0, 0.8]
       lens.forEach((L, k) => {
-        const ang = 0.15 + k * 0.3 + flap
+        const ang = 0.15 + k * 0.3 + flap + g.sway[0] * 0.5 * sd
         const dir = [sd * Math.sin(ang), Math.cos(ang) * 0.9, -0.3]
         const f = frame(base, dir, [0, 0, 1], L * 0.9)
         drawMesh(S, feather, f, mat(k % 2 ? '#e8f4ff' : '#ffffff', { ks: 0.2, ambient: 0.55, rim: 0.5, rimColor: [190, 225, 255] }), { layer: 'back' })
@@ -1317,21 +1593,21 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.32, [255, 130, 150], 0.42)
   },
 
-  // 11. Devil 😈 — ridged curved horns with ember glow
+  // 11. Devil 😈
   devil(S, g) {
     const horn = (sd) =>
       cache(`horn${sd}`, () => {
         const pts = []
         for (let i = 0; i <= 26; i += 1) {
           const t = i / 26
-          pts.push([sd * (0.35 * t + 0.28 * t * t * t - 0.22 * t * t * 0), 0.95 * t - 0.12 * t * t, 0.12 * Math.sin(t * Math.PI)])
+          pts.push([sd * (0.35 * t + 0.28 * t * t * t), 0.95 * t - 0.12 * t * t, 0.12 * Math.sin(t * Math.PI)])
         }
         return tube(pts, (t) => (0.17 * (1 - t) ** 1.2 + 0.012) * (1 + 0.08 * Math.sin(t * 46)), 12, { cap: true })
       })
     const hm = mat('#c8192b', { ks: 0.9, shine: 46, ambient: 0.3, rim: 0.7, rimColor: [255, 150, 90] })
     ;[-1, 1].forEach((sd) => {
       const p = g.ep(sd * 0.54, 0.0, -0.04)
-      const tf = frame(p, [sd * 0.3, 1, 0.1], [0, 0, 1], 1.05)
+      const tf = frame(p, [sd * 0.3, 1, 0.1], [0, 0, 1], 1.05).rz(-g.sway[0] * 0.15)
       softBlob(S, tf.go(sd * 0.1, 0.2, 0).p, 0.45, 0.45, [255, 60, 40], 0.3, 0, { add: true, bias: -20 })
       drawMesh(S, horn(sd), tf, hm)
       drawMesh(S, cache('hornBase', () => lathe([[0, 0], [0.24, 0], [0.22, 0.05], [0.16, 0.1], [0, 0.11]], 16)), tf.go(0, -0.06, 0), mat('#3b0a12', { ks: 0.4, rim: 0.4 }))
@@ -1340,14 +1616,13 @@ const RENDERERS_3D = {
     sparkleAt(S, [0.62, g.top + 0.75, 0.05], 0.06, S.t, 2.2, [255, 110, 70])
   },
 
-  // 12. Strawberry 🍓 — strawberry beanie with seeds and leafy calyx
+  // 12. Strawberry 🍓
   strawberry(S, g) {
     const T = g.top
-    const tf = frame([0, T - 0.72, -0.04], [0, 1, -0.05])
+    const tf = frame([0, T - 0.72, -0.04], [0, 1, -0.05]).rz(-g.sway[0] * 0.2)
     const prof = [[0, 0], [0.64, 0], [0.84, 0.13], [0.92, 0.32], [0.88, 0.55], [0.72, 0.8], [0.44, 1.02], [0.2, 1.12], [0, 1.15]]
     const body = cache('strawBody', () => lathe(prof, 32))
     drawMesh(S, body, tf, gloss('#e8193f', { ks: 0.55, shine: 34, ambient: 0.34, rim: 0.7, rimColor: [255, 150, 150] }))
-    // seeds placed on the surface in a spiral
     const seed = cache('seed', () => ellipsoid(0.028, 0.05, 0.016, 8, 5))
     const sm = mat('#ffe58a', { ks: 0.5, ambient: 0.55 })
     const surf = (t) => {
@@ -1372,11 +1647,10 @@ const RENDERERS_3D = {
       const p = [(s.r + 0.012) * c, s.y, (s.r + 0.012) * sn]
       drawMesh(S, seed, tf.child(p, n, [0, 1, 0]), sm, { face: 0.4 })
     }
-    // calyx
     const leaf = cache('calyxLeaf', () => ellipsoid(0.17, 0.42, 0.035, 12, 8, { oy: 0.42 }))
     for (let i = 0; i < 8; i += 1) {
       const a = (i / 8) * TAU + 0.2
-      const lf = tf.child([0, 1.12, 0], [Math.cos(a) * 0.95, 0.35, Math.sin(a) * 0.95], [0, 1, 0], 0.85)
+      const lf = tf.child([0, 1.12, 0], [Math.cos(a) * 0.95, 0.35 + g.sway[0] * 0.3 * Math.cos(a), Math.sin(a) * 0.95], [0, 1, 0], 0.85)
       drawMesh(S, leaf, lf, mat(i % 2 ? '#2f9e4f' : '#3fbf63', { ks: 0.35, rim: 0.4, double: true }))
     }
     drawMesh(S, cache('stem', () => tube([[0, 0, 0], [0.03, 0.2, 0], [0.1, 0.33, 0]], 0.05, 8, { cap: true })), tf.go(0, 1.12, 0), mat('#2c7a3a', { ks: 0.3 }))
@@ -1384,10 +1658,10 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.32, [255, 100, 130], 0.5)
   },
 
-  // 13. Toadstool 🍄 — spotted cap with cream gills
+  // 13. Toadstool 🍄
   mushroom(S, g) {
     const T = g.top
-    const tf = frame([0, T - 0.78, -0.02], [0, 1, -0.05])
+    const tf = frame([0, T - 0.78, -0.02], [0, 1, -0.05]).rz(-g.sway[0] * 0.2)
     const prof = [[0, 0.02], [0.5, 0.02], [0.86, 0.05], [0.97, 0.12], [0.96, 0.24], [0.84, 0.42], [0.6, 0.57], [0.3, 0.65], [0, 0.68]]
     const cap = cache('cap', () =>
       lathe(prof, 36, { colorFn: (th, t) => (t < 0.2 ? hex('#f7e9c9') : mixc(hex('#e0193f'), hex('#ff5a6e'), smooth(0.5, 1, t) * 0.4)) }),
@@ -1417,7 +1691,7 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.32, [255, 110, 140], 0.5)
   },
 
-  // 14. Ribbon 🎀 — satin bow with real volume
+  // 14. Ribbon 🎀 — pita mengayun
   ribbon(S, g) {
     const T = g.top
     const loop = (sd) =>
@@ -1439,8 +1713,8 @@ const RENDERERS_3D = {
         return puffy(poly, 0.05, { center: [sd * 0.48, 0], ang: 24, rings: 4 })
       })
     const tail = cache('tail', () => puffy([[-0.14, 0], [0.14, 0], [0.25, -0.66], [0, -0.52], [-0.25, -0.66]], 0.07, { center: [0, -0.3], ang: 30, rings: 5 }))
-    const tf = frame([0.5, T - 0.5, 0.18], [0.35, 1, 0.1], [0, 0, 1], 0.78).rz(-0.2)
-    ;[0.4, -0.4].forEach((a) => drawMesh(S, tail, tf.go(0, -0.02, -0.05).rz(a), mat('#f2428f', { ks: 0.8, shine: 55, rim: 0.45 })))
+    const tf = frame([0.5, T - 0.5, 0.18], [0.35, 1, 0.1], [0, 0, 1], 0.78).rz(-0.2 - g.sway[0] * 0.4)
+    ;[0.4, -0.4].forEach((a) => drawMesh(S, tail, tf.go(0, -0.02, -0.05).rz(a + g.sway[0] * 0.8), mat('#f2428f', { ks: 0.8, shine: 55, rim: 0.45 })))
     ;[-1, 1].forEach((sd) => {
       drawMesh(S, loop(sd), tf, SATIN_PINK)
       drawMesh(S, fold(sd), tf.go(0, 0, 0.1), mat('#ff9fcb', { ks: 0.9, shine: 70, ambient: 0.4, rim: 0.4 }))
@@ -1451,10 +1725,10 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.32, [255, 110, 160], 0.5)
   },
 
-  // 15. Heart blush 💖 — glossy puffy hearts that spin around the head
+  // 15. Heart blush 💖
   heart_blush(S, g) {
     const T = g.top
-    const heart = cache('heart', () => puffy(hearth(), 0.3, { center: [0, 0.05], ang: 44, rings: 7, pow: 0.55 }))
+    const heart = heartMesh()
     const cols = ['#ff3d71', '#ff7aa8', '#ff9ec4', '#e11d48', '#ff5c8a', '#ffb3cf']
     const pm = (c) => gloss(c, { ks: 1, shine: 50, rim: 0.5, rimColor: [255, 190, 210], ambient: 0.34 })
     const pulse = 1 + 0.09 * Math.sin(S.t * 5)
@@ -1473,7 +1747,7 @@ const RENDERERS_3D = {
     }
   },
 
-  // 16. Star glam ✨ — faceted metal stars, glints and glitter
+  // 16. Star glam ✨
   star_glam(S, g) {
     const T = g.top
     const star = cache('star3d', () => starMesh(1, 0.47, 0.3))
@@ -1485,7 +1759,6 @@ const RENDERERS_3D = {
         sparkleAt(S, [p[0] + (k ? 0.3 : -0.3), p[1] + 0.22, p[2] + 0.25], 0.06, S.t, k * 2, [255, 255, 255])
       }
     })
-    // glitter under the eyes
     ;[g.eL, g.eR].forEach((e, k) => {
       for (let i = 0; i < 5; i += 1) {
         const a = -0.6 + i * 0.35
@@ -1502,7 +1775,7 @@ const RENDERERS_3D = {
     }
   },
 
-  // 17. Cyber shades 🕶️ — neon visor with a sweeping glare
+  // 17. Cyber shades 🕶️
   shades(S, g) {
     const ez = Math.max(g.eL[2], g.eR[2]) + 0.14
     const ex = Math.max(0.5, (Math.abs(g.eL[0]) + Math.abs(g.eR[0])) / 2)
@@ -1541,7 +1814,6 @@ const RENDERERS_3D = {
         cx.fill()
         cx.save()
         cx.clip()
-        // static reflection + sweeping glare
         cx.fillStyle = 'rgba(255,255,255,0.35)'
         cx.beginPath()
         cx.moveTo(-w * 0.45, h * 0.5)
@@ -1566,7 +1838,6 @@ const RENDERERS_3D = {
         cx.restore()
       }, { bias: -2 })
     })
-    // bridge + temples
     const bridge = cache('bridge', () => tube([[-0.16, 0.1, 0], [-0.07, 0.17, 0.05], [0.07, 0.17, 0.05], [0.16, 0.1, 0]], 0.04, 8, { cap: true }))
     drawMesh(S, bridge, at([0, cy, ez]), frameMat)
     ;[-1, 1].forEach((sd) => {
@@ -1575,7 +1846,7 @@ const RENDERERS_3D = {
         const x0 = sd * (w / 2)
         for (let i = 0; i <= 14; i += 1) {
           const t = i / 14
-          pts.push([x0 + sd * 0.0 + sd * (0.99 - ex - w / 2) * t, h * 0.3 - 0.1 * t * t, -1.9 * t])
+          pts.push([x0 + sd * (0.99 - ex - w / 2) * t, h * 0.3 - 0.1 * t * t, -1.9 * t])
         }
         return tube(pts, 0.036, 8, { cap: true })
       })
@@ -1583,7 +1854,7 @@ const RENDERERS_3D = {
     })
   },
 
-  // 18. Gentleman 👓 — round gold spectacles + curled moustache
+  // 18. Gentleman 👓
   retro_glasses(S, g) {
     const ez = Math.max(g.eL[2], g.eR[2]) + 0.12
     const ex = Math.max(0.5, (Math.abs(g.eL[0]) + Math.abs(g.eR[0])) / 2)
@@ -1617,20 +1888,16 @@ const RENDERERS_3D = {
         const pts = []
         for (let i = 0; i <= 12; i += 1) {
           const t = i / 12
-          pts.push([sd * R, R * 0.2 - 0.12 * t * t, -1.9 * t])
+          pts.push([sd * R + sd * (1.0 - ex - R) * t, R * 0.2 - 0.12 * t * t, -1.9 * t])
         }
-        pts.forEach((p) => {
-          p[0] += sd * (1.0 - ex - R) * (pts.indexOf(p) / 12)
-        })
         return tube(pts, 0.024, 6, { cap: true })
       })
       drawMesh(S, arm, at(c), wire)
     })
     drawMesh(S, cache('rbridge', () => tube([[-0.28, 0.05, 0], [-0.12, 0.2, 0.05], [0.12, 0.2, 0.05], [0.28, 0.05, 0]], 0.026, 8, { cap: true })), at([0, cy, ez]).sc(ex / 0.5), wire)
-    // moustache
     const n = g.at(2)
     const lip = g.at(0)
-    const mp = [lerp3(n, lip, 0.5)[0], lerp3(n, lip, 0.5)[1] + 0.0, Math.max(n[2], lip[2]) + 0.06]
+    const mp = [lerp3(n, lip, 0.5)[0], lerp3(n, lip, 0.5)[1], Math.max(n[2], lip[2]) + 0.06]
     const wing = (sd) =>
       cache(`mwing${sd}`, () => {
         const base = [[0, 0.02], [0.14, -0.03], [0.3, -0.07], [0.47, -0.04], [0.6, 0.06], [0.65, 0.18], [0.58, 0.26], [0.49, 0.23], [0.47, 0.16]]
@@ -1640,10 +1907,10 @@ const RENDERERS_3D = {
     ;[-1, 1].forEach((sd) => drawMesh(S, wing(sd), at(mp, 0.9), mm))
   },
 
-  // 19. Cowboy 🤠 — felt hat with curled brim, band, buckle and star
+  // 19. Cowboy 🤠
   cowboy(S, g) {
     const T = g.top
-    const tf = frame([0, T - 0.56, -0.05], [0, 1, -0.1], [0, 0, 1])
+    const tf = frame([0, T - 0.56, -0.05], [0, 1, -0.1], [0, 0, 1]).rz(-g.sway[0] * 0.15)
     const brim = cache('brim', () =>
       deform(
         lathe([[0.5, -0.03], [1.5, -0.03], [1.6, 0.0], [1.5, 0.04], [0.5, 0.04]], 52),
@@ -1670,10 +1937,10 @@ const RENDERERS_3D = {
     }
   },
 
-  // 20. Party 🥳 — swirl cone hat, tinsel, elastic strap and tumbling confetti
+  // 20. Party 🥳
   party(S, g) {
     const T = g.top
-    const tf = frame([0.22, T - 0.5, -0.05], [0.28, 1, -0.15], [0, 0, 1])
+    const tf = frame([0.22, T - 0.5, -0.05], [0.28, 1, -0.15], [0, 0, 1]).rz(-g.sway[0] * 0.4)
     const pal = ['#ff5fa2', '#22d3ee', '#ffd400', '#a855f7'].map(hex)
     const cone = cache('partyCone', () =>
       lathe([[0.64, 0], [0.55, 0.26], [0.42, 0.58], [0.26, 0.92], [0.1, 1.2], [0, 1.34]], 36, {
@@ -1687,14 +1954,12 @@ const RENDERERS_3D = {
       return tube(pts, 0.07, 8, { closed: true, up: [0, 1, 0] })
     })
     drawMesh(S, tinsel, tf, mat('#ffd54a', { ks: 0.8, shine: 36, ambient: 0.4, rim: 0.7, metal: true }))
-    // fluffy pompom
     const tip = tf.go(0, 1.36, 0)
     drawSphere(S, tip, 0.14, fur('#ffe45c', { ambient: 0.5, rim: 0.8 }))
     for (let i = 0; i < 8; i += 1) {
       const a = (i / 8) * TAU
       drawSphere(S, tip.go(Math.cos(a) * 0.1, Math.sin(a * 2) * 0.05, Math.sin(a) * 0.1), 0.07, fur('#fff0a0', { ambient: 0.55, rim: 0.7 }))
     }
-    // strap hugging the jaw
     const s1 = g.at(234)
     const s2 = g.at(152)
     const s3 = g.at(454)
@@ -1719,7 +1984,6 @@ const RENDERERS_3D = {
       curve.push(strap[strap.length - 1])
       drawMesh(S, tube(curve, 0.016, 5), ROOT, mat('#1b1b25', { ks: 0.4, rim: 0.3 }), { layer: 'front' })
     }
-    // confetti
     const cols = ['#22d3ee', '#ff5fa2', '#ffd400', '#a855f7', '#4ade80', '#fb923c']
     const disc = cache('confetti', () => ellipsoid(0.07, 0.012, 0.045, 8, 4))
     for (let i = 0; i < 14; i += 1) {
@@ -1730,7 +1994,8 @@ const RENDERERS_3D = {
       drawMesh(S, disc, at(p, 1.2).rx(S.t * 3 + i).ry(S.t * 2.2 + i * 2), m)
     }
   },
-  // 21. Love 💕 — hearts float up from the head (Photo Booth "Love")
+
+  // 21. Love 💕
   love(S, g) {
     const T = g.top
     const heart = heartMesh()
@@ -1750,7 +2015,7 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.34, [255, 100, 150], 0.5)
   },
 
-  // 22. Birds 🐤 — three chirping birds circling above the head
+  // 22. Birds 🐤
   birds(S, g) {
     const T = g.top
     const P = cache('birdParts', () => ({
@@ -1782,7 +2047,7 @@ const RENDERERS_3D = {
     }
   },
 
-  // 23. Storm cloud ⛈️ — a little rain cloud with falling drops and lightning
+  // 23. Storm cloud ⛈️
   storm_cloud(S, g) {
     const T = g.top
     const cp = [0, T + 1.0 + Math.sin(S.t * 1.6) * 0.05, 0]
@@ -1814,11 +2079,11 @@ const RENDERERS_3D = {
     }
   },
 
-  // 24. Snowfall ❄️ — snow cap, drifting flakes and 6-arm crystals
+  // 24. Snowfall ❄️
   snowfall(S, g) {
     const T = g.top
     const snow = mat('#ffffff', { ambient: 1.0, glow: 0.3, rim: 0.2, rimColor: [200, 225, 255], ks: 0.05 })
-    ;[-0.62, -0.31, 0, 0.31, 0.62].forEach((x, i) => {
+    ;[-0.62, -0.31, 0, 0.31, 0.62].forEach((x) => {
       const p = g.ep(x, 0.05, 0.03)
       drawSphere(S, at([p[0], p[1] - 0.1, p[2]]), 0.34 - Math.abs(x) * 0.12, snow)
       drawSphere(S, at(g.ep(x * 0.8, 0.42, -0.02)), 0.27, snow)
@@ -1843,7 +2108,7 @@ const RENDERERS_3D = {
     blushAt(S, g, 425, 0.34, [255, 130, 160], 0.4)
   },
 
-  // 25. Music notes 🎵 — glossy 3D notes drifting up from both sides
+  // 25. Music notes 🎵
   music_notes(S, g) {
     const T = g.top
     const head = cache('noteHead', () => ellipsoid(0.13, 0.09, 0.06, 12, 8))
@@ -1874,7 +2139,7 @@ const RENDERERS_3D = {
     }
   },
 
-  // 26. Butterflies 🦋 — flapping wings, fluttering around the head
+  // 26. Butterflies 🦋
   butterflies(S, g) {
     const T = g.top
     const wing = (kind, sd) =>
@@ -1932,7 +2197,7 @@ const RENDERERS_3D = {
     }
   },
 
-  // 27. Bubbles 🫧 — iridescent soap bubbles rising around the head
+  // 27. Bubbles 🫧
   bubbles(S, g) {
     const T = g.top
     for (let i = 0; i < 15; i += 1) {
@@ -1948,7 +2213,6 @@ const RENDERERS_3D = {
       bubblePart(S, [x, y, z], r * k, a)
     }
   },
-
 }
 
 // =============================================================================

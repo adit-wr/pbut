@@ -1,14 +1,4 @@
-/**
- * Photo strip themes — cute colours + cute motifs.
- *
- * Each theme drives:
- *  - frame:        canvas background / border colour
- *  - accent:       border drawn around every photo
- *  - onFrame:      footer text colour (must contrast with `frame`)
- *  - photoFallback: placeholder colour behind a photo
- *  - pattern:      motif tiled over the frame (see stripCanvas.js)
- *  - patternColor / patternAlpha: motif colour + transparency
- */
+
 export const THEMES = [
   {
     id: 'strawberry',

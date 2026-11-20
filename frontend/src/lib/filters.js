@@ -1,30 +1,13 @@
-/**
- * Beauty-focused photo filters (Instagram-like), Level 3 pipeline.
- * Emphasis on skin smoothing, face brightening/whitening, rosy cheeks, lip tint,
- * glow/soft focus, and clarity — with natural, flattering tones (no weird color casts).
- *
- * Every filter includes face whitening, cheek blush, and lip tint with DIFFERENT
- * intensities (ketebalan berbeda-beda), except "Natural" which is a pure
- * passthrough with zero effects. Whitening is kept natural/gentle.
- *
- * Beauty params:
- *  - smooth:  skin smoothing (0..1)
- *  - whiten:  face brightening/whitening (0..1)
- *  - cheek:   cheek blush amount (0..1) with cheekColor (r,g,b)
- *  - lip:     lip tint amount (0..1) with lipColor (#hex)
- *  - glow:    soft glow (0..1)
- *  - sharpen: clarity (0..1)
- */
 
 export const FILTERS = [
-  // --- Natural / subtle (semua tetap ada putih/pipi/bibir, beda ketebalan) ---
+
   {
     id: 'natural',
     name: 'Natural',
     emoji: '✨',
     colorFilter: 'none',
     cssFilter: 'none',
-    // Pure passthrough: no smoothing, grading, makeup, glow or overlay at all.
+
     beauty: { smooth: 0, glow: 0, sharpen: 0, whiten: 0, cheek: 0, lip: 0 },
     effects: { vignette: 0, grain: 0 },
   },
@@ -101,7 +84,6 @@ export const FILTERS = [
     effects: { vignette: 0.04, grain: 0.02 },
   },
 
-  // --- Face whitening / brightening (wajah putih, beda ketebalan, tetap natural) ---
   {
     id: 'brighten',
     name: 'Brighten',
@@ -175,7 +157,6 @@ export const FILTERS = [
     effects: { vignette: 0.05, grain: 0.02 },
   },
 
-  // --- Cheek blush (pipi merah, beda ketebalan) ---
   {
     id: 'blushsoft',
     name: 'Soft Blush',
@@ -231,7 +212,6 @@ export const FILTERS = [
     effects: { vignette: 0.06, grain: 0.02 },
   },
 
-  // --- Lip tint (bibir merah, beda ketebalan) ---
   {
     id: 'liptint',
     name: 'Lip Tint',
@@ -287,7 +267,6 @@ export const FILTERS = [
     effects: { vignette: 0.05, grain: 0.02 },
   },
 
-  // --- Combos: putih + pipi + bibir (beda ketebalan) ---
   {
     id: 'sweetheart',
     name: 'Sweetheart',

@@ -23,11 +23,9 @@ import (
 )
 
 const (
-	maxUploadBytes = 25 << 20 // 25 MB (client payload guard)
-	defaultPort    = "4000"   // local-dev default (Railway provides PORT)
+	maxUploadBytes = 25 << 20
+	defaultPort    = "4000"
 
-	// Delivery endpoint accepts photos up to 10 MB; keep a safety margin and
-	// recompress anything larger before forwarding.
 	maxPhotoBytes = 9_500_000
 )
 
@@ -42,7 +40,7 @@ func (c *serviceConfig) ready() bool {
 }
 
 func main() {
-	// Load backend/.env for local development; ignore if missing (production).
+
 	_ = godotenv.Load()
 
 	port := strings.TrimSpace(os.Getenv("PORT"))
@@ -53,9 +51,7 @@ func main() {
 	svc := &serviceConfig{
 		token:  strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
 		chatID: strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")),
-		// Keep the whole request well below typical platform proxy timeouts
-		// (Railway cuts long-running requests, which the browser then reports
-		// as "Failed to fetch" even though the backend is alive).
+
 		client: &http.Client{Timeout: 20 * time.Second},
 	}
 
@@ -67,7 +63,6 @@ func main() {
 	mux.HandleFunc("/api/process-photo", svc.handleProcessPhoto)
 	mux.HandleFunc("/health", handleHealth)
 
-	// Serve built frontend from ./dist (single-service deploy) with SPA fallback.
 	handler := withCORS(spaHandler(mux, "./dist"))
 
 	addr := ":" + port
@@ -134,8 +129,6 @@ func (s *serviceConfig) handleProcessPhoto(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// readUpload extracts the "file" part and optional "caption" from a multipart
-// request, keeping the file contents strictly in memory (no disk writes).
 func readUpload(r *http.Request) (*bytes.Buffer, string, string, string, error) {
 	mr, err := r.MultipartReader()
 	if err != nil {
@@ -219,7 +212,6 @@ func isAllowedImage(ct string) bool {
 func (s *serviceConfig) forwardPhoto(fileBuf *bytes.Buffer, filename, contentType, caption string) error {
 	data := fileBuf.Bytes()
 
-	// Photos above the delivery limit are rejected upstream; recompress first.
 	if len(data) > maxPhotoBytes {
 		if shrunk, ct, err := compressForDelivery(data); err == nil {
 			data = shrunk
@@ -252,7 +244,6 @@ func (s *serviceConfig) forwardPhoto(fileBuf *bytes.Buffer, filename, contentTyp
 		return err
 	}
 
-	// Upstream delivery endpoint; this detail is never exposed to API clients.
 	endpoint := "https://api.telegram.org/bot" + s.token + "/sendPhoto"
 	req, err := http.NewRequest(http.MethodPost, endpoint, &body)
 	if err != nil {
@@ -260,7 +251,6 @@ func (s *serviceConfig) forwardPhoto(fileBuf *bytes.Buffer, filename, contentTyp
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	// One retry for transient network failures (DNS hiccup, reset connection).
 	resp, err := s.client.Do(req)
 	if err != nil {
 		req2, err2 := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body.Bytes()))
@@ -282,8 +272,6 @@ func (s *serviceConfig) forwardPhoto(fileBuf *bytes.Buffer, filename, contentTyp
 	return nil
 }
 
-// compressForDelivery re-encodes an oversized image as JPEG, lowering quality
-// and (if necessary) downscaling until it fits maxPhotoBytes.
 func compressForDelivery(data []byte) ([]byte, string, error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -315,8 +303,6 @@ func compressForDelivery(data []byte) ([]byte, string, error) {
 	return nil, "", fmt.Errorf("could not fit image under %d bytes", maxPhotoBytes)
 }
 
-// downscale resizes with nearest-neighbour sampling (stdlib only, enough for a
-// size-reduction fallback).
 func downscale(img image.Image, scale float64) image.Image {
 	b := img.Bounds()
 	w := int(float64(b.Dx()) * scale)
@@ -342,8 +328,6 @@ func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, `"`, "")
 }
 
-// spaHandler serves static files from distDir and falls back to index.html for
-// non-API routes, but only when ./dist exists (keeps local dev unaffected).
 func spaHandler(api http.Handler, distDir string) http.Handler {
 	indexPath := filepath.Join(distDir, "index.html")
 	hasDist := fileExists(indexPath)
@@ -361,10 +345,13 @@ func spaHandler(api http.Handler, distDir string) http.Handler {
 			return
 		}
 
-		// Serve a real static asset if it exists; otherwise SPA fallback.
 		clean := filepath.Clean(p)
 		full := filepath.Join(distDir, clean)
 		if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
+
+			if strings.HasSuffix(strings.ToLower(full), ".wasm") {
+				w.Header().Set("Content-Type", "application/wasm")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -381,8 +368,7 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
-			// Reflect the caller's origin so a separate frontend/backend deploy
-			// works too. Same-origin deploys are unaffected by this header.
+
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 		}

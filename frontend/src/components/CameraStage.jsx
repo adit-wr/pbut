@@ -1,46 +1,39 @@
 import { useEffect, useRef } from 'react'
 import Webcam from 'react-webcam'
-import { getFaceLandmarker } from '../lib/faceTracker'
 import { renderArFilter } from '../lib/renderArOverlay'
-import { liftForeheadLandmarks } from '../lib/arFilters'
 import { drawBeautified } from '../lib/beautyPipeline'
+import { getSlotAspect } from '../lib/stripCanvas'
 import { DEFAULT_FILTER } from '../lib/filters'
 import { DEFAULT_AR_FILTER } from '../lib/arFilters'
+import { t } from '../lib/i18n'
 
 const isMobileDevice =
   typeof navigator !== 'undefined' &&
   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 
-function describeCameraError(err) {
+function describeCameraError(err, lang = 'en') {
   const name = err?.name || String(err)
   switch (name) {
     case 'NotAllowedError':
     case 'PermissionDeniedError':
-      return 'Camera permission was denied. Allow camera access in your browser and retry.'
+      return t(lang, 'cam.denied')
     case 'NotFoundError':
     case 'DevicesNotFoundError':
-      return 'No camera device was found on this machine.'
+      return t(lang, 'cam.notFound')
     case 'NotReadableError':
-      return 'Your camera is busy in another app. Close it and retry.'
+      return t(lang, 'cam.busy')
     default:
-      return `Could not open the camera (${name}).`
+      return t(lang, 'cam.unknown', { name })
   }
 }
 
-/**
- * Live camera stage with countdown overlay, level-3 beauty pipeline, and AR face tracking.
- * Renders the video through a beautified canvas (mirrored selfie) and draws AR props on top.
- * renderArOverlay.js is used as-is.
- *
- * Performance: starts at full quality. If preview stutters/freezes, quality is reduced
- * adaptively and reported via onQualityChange so preview and final strip stay in sync.
- */
 export default function CameraStage({
   webcamRef,
   countdown,
   busy,
   cameraOn,
   onToggleCamera,
+  cameraToggleDisabled = false,
   error,
   onCameraError,
   onRetry,
@@ -50,8 +43,11 @@ export default function CameraStage({
   quality = 1,
   onQualityChange,
   onLandmarksUpdate,
+  photos = [],
+  lang = 'en',
 }) {
   const portrait = photoCount === 2
+  const slotAspect = getSlotAspect(photoCount)
   const canvasRef = useRef(null)
   const animFrameRef = useRef(null)
   const latestLandmarksRef = useRef([])
@@ -64,11 +60,10 @@ export default function CameraStage({
   }, [quality])
 
   useEffect(() => {
-    // Reset performance state when camera (re)starts; keep quality as-is (parent controls initial)
+
     perfRef.current = { lastFrame: 0, slow: 0, fast: 0 }
   }, [cameraOn])
 
-  // Face tracking + beautified render loop
   useEffect(() => {
     if (!cameraOn || error) return undefined
 
@@ -76,9 +71,12 @@ export default function CameraStage({
     let landmarker = null
     let lastDetect = -1
 
-    getFaceLandmarker().then((lm) => {
-      if (isMounted) landmarker = lm
-    })
+    import('../lib/faceTracker')
+      .then(({ getFaceLandmarker }) => getFaceLandmarker())
+      .then((lm) => {
+        if (isMounted) landmarker = lm
+      })
+      .catch((err) => console.error('Failed to load face tracking:', err))
 
     let lastVideoTime = -1
     let stalledSince = 0
@@ -94,12 +92,11 @@ export default function CameraStage({
         if (video && video.readyState >= 2 && canvas) {
           const vw = video.videoWidth
           const vh = video.videoHeight
-          const cw = canvas.clientWidth
-          const ch = canvas.clientHeight
 
-          // Mobile Safari can suspend the stream when the tab is backgrounded.
-          // If currentTime stops advancing, nudge playback instead of leaving
-          // the canvas frozen on the last drawn frame.
+          const wide = vw / vh > slotAspect
+          const cw = wide ? Math.round(vh * slotAspect) : vw
+          const ch = wide ? vh : Math.round(vw / slotAspect)
+
           if (video.currentTime !== lastVideoTime) {
             lastVideoTime = video.currentTime
             stalledSince = now
@@ -108,11 +105,10 @@ export default function CameraStage({
             try {
               video.play?.()?.catch?.(() => {})
             } catch {
-              /* ignore */
+
             }
           }
 
-          // Adaptive quality: only reduce when preview stutters/freezes, not at start
           const perf = perfRef.current
           if (perf.lastFrame) {
             const dt = now - perf.lastFrame
@@ -151,7 +147,6 @@ export default function CameraStage({
             const q = qualityRef.current
             const detectInterval = q < 1 ? 90 : 33
 
-            // Throttle face detection (slower in reduced-quality mode) to save CPU/GPU
             if (landmarker && now - lastDetect >= detectInterval) {
               lastDetect = now
               try {
@@ -160,13 +155,13 @@ export default function CameraStage({
                 latestLandmarksRef.current = faces
                 onLandmarksUpdate?.(faces)
               } catch {
-                // Frame dropped or task busy
+
               }
             }
 
             const ctx = canvas.getContext('2d')
             if (ctx) {
-              // object-cover crop for the full video frame
+
               const scale = Math.max(cw / vw, ch / vh)
               const dw = vw * scale
               const dh = vh * scale
@@ -180,7 +175,7 @@ export default function CameraStage({
               const faces = latestLandmarksRef.current || []
 
               try {
-                // Draw beautified, mirrored selfie frame (flip raw video pixels + mirror landmark masks)
+
                 drawBeautified(
                   ctx,
                   video,
@@ -198,20 +193,18 @@ export default function CameraStage({
                   beautyCacheRef.current,
                 )
 
-                // Render AR Face props on top of the mirrored image.
-                // Landmarks are in raw video space; image pixels are mirrored, so flip X in mapping.
                 if (arFilterId && arFilterId !== 'none' && faces.length > 0) {
                   const toCanvas = (nx, ny) => ({
                     x: dx + (1 - nx) * dw,
                     y: dy + ny * dh,
                   })
-                  renderArFilter(ctx, liftForeheadLandmarks(faces), toCanvas, arFilterId)
+
+                  ctx.filter = 'none'
+                  renderArFilter(ctx, faces, toCanvas, arFilterId)
                 }
                 beautyWarned = false
               } catch (err) {
-                // A single bad frame (e.g. malformed landmarks on mobile) must
-                // never kill the animation loop. Fall back to a plain mirrored
-                // frame so the preview stays live instead of freezing.
+
                 if (!beautyWarned) {
                   console.warn('Beauty preview frame failed, showing raw frame:', err)
                   beautyWarned = true
@@ -229,7 +222,7 @@ export default function CameraStage({
       } catch (err) {
         console.error('Camera preview frame error:', err)
       } finally {
-        // Always schedule the next frame, even if a frame threw an error.
+
         animFrameRef.current = requestAnimationFrame(tick)
       }
     }
@@ -240,37 +233,39 @@ export default function CameraStage({
       isMounted = false
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
-  }, [cameraOn, error, arFilterId, filter, webcamRef, onLandmarksUpdate, onQualityChange])
+  }, [cameraOn, error, arFilterId, filter, slotAspect, webcamRef, onLandmarksUpdate, onQualityChange])
 
   return (
     <div
+      style={{ aspectRatio: slotAspect }}
       className={`relative w-full overflow-hidden border bg-neutral-950 ${
-        portrait ? 'mx-auto aspect-[3/4] max-w-sm' : 'aspect-video'
+        portrait ? 'mx-auto max-w-sm' : ''
       } border-neutral-800`}
     >
       {!cameraOn ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
           <div>
             <p className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-pink-300">
-              Camera off
+              {t(lang, 'stage.off')}
             </p>
             <p className="mt-2 text-[13px] leading-relaxed text-neutral-400">
-              Turn it on to start capturing.
+              {t(lang, 'stage.offHint')}
             </p>
           </div>
           <button
             type="button"
             onClick={onToggleCamera}
-            className="min-h-11 border border-white bg-white px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-neutral-200 md:cursor-pointer"
+            disabled={cameraToggleDisabled}
+            className="min-h-11 border border-white bg-white px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-40 md:cursor-pointer"
           >
-            Turn camera on
+            {t(lang, 'stage.turnOn')}
           </button>
         </div>
       ) : error ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
           <div>
             <p className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-pink-300">
-              Camera unavailable
+              {t(lang, 'stage.unavailable')}
             </p>
             <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-neutral-400">{error}</p>
           </div>
@@ -279,7 +274,7 @@ export default function CameraStage({
             onClick={onRetry}
             className="min-h-11 border border-white bg-white px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-neutral-200 md:cursor-pointer"
           >
-            Try again
+            {t(lang, 'stage.retry')}
           </button>
         </div>
       ) : (
@@ -292,20 +287,19 @@ export default function CameraStage({
             forceScreenshotSourceSize
             videoConstraints={{
               facingMode: 'user',
-              // Keep mobile cameras at a moderate resolution: high-res frames
-              // plus per-frame beauty processing are what stall phones.
+
               width: { ideal: isMobileDevice ? 1280 : portrait ? 1440 : 2560 },
               height: { ideal: isMobileDevice ? 960 : 1920 },
-              aspectRatio: { ideal: portrait ? 3 / 4 : 4 / 3 },
+              aspectRatio: { ideal: slotAspect },
             }}
-            onUserMediaError={(err) => onCameraError?.(describeCameraError(err))}
+            onUserMediaError={(err) => onCameraError?.(describeCameraError(err, lang))}
             className="pointer-events-none absolute h-0 w-0 opacity-0"
           />
 
           <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
 
           <div className="absolute left-3 top-3 flex items-center gap-2 border border-white/20 bg-black/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-            <span className="size-1.5 animate-pulse bg-pink-300" /> Live
+            <span className="size-1.5 animate-pulse bg-pink-300" /> {t(lang, 'stage.live')}
           </div>
 
           {countdown !== null && (
@@ -321,7 +315,31 @@ export default function CameraStage({
 
           {busy && countdown === null && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 border border-white/20 bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-              Processing
+              {t(lang, 'stage.processing')}
+            </div>
+          )}
+
+          {photos.length > 0 && (
+            <div
+              className="pointer-events-none absolute bottom-3 left-3 z-20 flex gap-1.5"
+              aria-label={t(lang, 'stage.thumbs', { count: photos.length })}
+            >
+              {photos.map((photo, index) => (
+                <div
+                  key={`${index}-${photo.dataUrl?.length}`}
+                  style={{ aspectRatio: slotAspect }}
+                  className="relative h-12 w-auto border border-white/70 bg-black/60"
+                >
+                  <img
+                    src={photo.dataUrl}
+                    alt={t(lang, 'stage.thumbAlt', { n: index + 1 })}
+                    className="h-full w-full object-cover"
+                  />
+                  <span className="absolute bottom-0 right-0 bg-black/75 px-1 font-mono text-[8px] font-bold leading-none tabular-nums text-white">
+                    {index + 1}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </>

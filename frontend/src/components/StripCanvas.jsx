@@ -1,15 +1,7 @@
 import { useEffect } from 'react'
 import { drawPhotoStrip, getStripHeight, loadImages, STRIP_WIDTH } from '../lib/stripCanvas'
+import { t } from '../lib/i18n'
 
-/**
- * Renders the photo strip on an HTML5 canvas.
- *
- * `drawPhotoStrip` is a synchronous renderer that expects already-decoded
- * HTMLImageElements (with `_landmarks` attached by `loadImages`). It returns
- * nothing — so we must load the images ourselves and notify `onDrawn` after the
- * draw completes. Calling `.then()` on its return value crashes React and
- * blanks the page as soon as the first photo arrives.
- */
 export default function StripCanvas({
   photos,
   theme,
@@ -19,6 +11,7 @@ export default function StripCanvas({
   canvasRef,
   onDrawn,
   darkMode = true,
+  lang = 'en',
 }) {
   useEffect(() => {
     if (photos.length === 0) return undefined
@@ -27,8 +20,6 @@ export default function StripCanvas({
 
     let stale = false
 
-    // Clear immediately so stale artwork never lingers between sessions
-    // (retake, photo-count change, theme/filter/AR change).
     const ctx = canvas.getContext('2d')
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
 
@@ -36,12 +27,11 @@ export default function StripCanvas({
       .then((images) => {
         if (stale || !canvasRef.current) return
         drawPhotoStrip(canvasRef.current, images, theme, filter, arFilterId, { quality })
-        // Sentinel: only a completed draw unlocks export/upload.
+
         if (!stale) onDrawn?.(images.length)
       })
       .catch((err) => {
-        // Never let a bad capture blank the page. Report a zero count so the
-        // caller can show a proper error instead of hanging on "processing".
+
         console.error('Failed to render photo strip:', err)
         if (!stale) onDrawn?.(0)
       })
@@ -64,13 +54,13 @@ export default function StripCanvas({
               darkMode ? 'text-pink-300' : 'text-pink-600'
             }`}
           >
-            Strip
+            {t(lang, 'strip.placeholderTitle')}
           </p>
           <p className={`mt-3 text-[13px] font-medium ${darkMode ? 'text-neutral-50' : 'text-neutral-950'}`}>
-            Your strip will appear here
+            {t(lang, 'strip.placeholder')}
           </p>
           <p className="mt-1 text-[11px] leading-relaxed text-neutral-500">
-            Press start and pick 2 or 3 frames above
+            {t(lang, 'strip.placeholderHint')}
           </p>
         </div>
       </div>
@@ -82,7 +72,7 @@ export default function StripCanvas({
       ref={canvasRef}
       width={STRIP_WIDTH}
       height={getStripHeight()}
-      aria-label="Generated photo strip"
+      aria-label={t(lang, 'strip.aria')}
       className={`h-auto w-full border ${darkMode ? 'border-neutral-800' : 'border-neutral-200'}`}
     />
   )

@@ -1,14 +1,11 @@
 import { THEMES } from '../lib/themes'
+import { t } from '../lib/i18n'
 
-/**
- * Twenty cute theme options — selecting one re-draws the canvas.
- * Each card previews the strip: frame colour + 3 photo slots + motif emoji.
- */
-export default function ThemePicker({ value, onChange, disabled, darkMode = true }) {
+export default function ThemePicker({ value, onChange, disabled, darkMode = true, lang = 'en' }) {
   return (
-    <div role="group" aria-label="Photo strip themes">
+    <div role="group" aria-label={t(lang, 'picker.themeAria')}>
       <p className="mb-2 text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-neutral-500">
-        Frame &amp; motif
+        {t(lang, 'picker.themeLabel')}
       </p>
       <div className="grid max-h-48 grid-cols-3 gap-2 overflow-y-auto pr-1 no-scrollbar sm:max-h-56">
         {THEMES.map((theme) => {
@@ -29,7 +26,7 @@ export default function ThemePicker({ value, onChange, disabled, darkMode = true
                     : 'border-neutral-200 hover:border-neutral-400'
               }`}
             >
-              {/* mini strip preview */}
+
               <span
                 className="flex h-9 flex-col gap-[3px] p-[3px]"
                 style={{ backgroundColor: theme.frame }}

@@ -1,66 +1,39 @@
-/**
- * Photo strip rendering on an HTML5 Canvas.
- *
- * Layout (all values are in canvas pixels, computed once):
- *
- *   |<-------------- STRIP_WIDTH -------------->|
- *   +-------------------------------------------+  ^ OUTER_PADDING
- *   |  ┌─────────────────────────────────────┐  |  |
- *   |  │           photo slot 1 (4:3)        │  |  | slotHeight
- *   |  └─────────────────────────────────────┘  |  |
- *   |               (GAP between slots)         |
- *   |  ┌─────────────────────────────────────┐  |
- *   |  │           photo slot 2 (4:3)        │  |
- *   |  └─────────────────────────────────────┘  |
- *   |  ┌─────────────────────────────────────┐  |
- *   |  │           photo slot 3 (4:3)        │  |
- *   |  └─────────────────────────────────────┘  |
- *   |  🍓 POTOBUT                        date   |  <- footer
- *   +-------------------------------------------+  ^ OUTER_PADDING
- *
- * The frame is filled with the theme colour, then tiled with the theme's
- * cute motif (hearts / flowers / stars / dots / bubbles / sparkles),
- * then the photos are drawn on top, so the motif only shows in the
- * padding, the gaps and the footer.
- */
 
 import { renderArFilter } from './renderArOverlay'
-import { liftForeheadLandmarks } from './arFilters'
 import { drawBeautified } from './beautyPipeline'
 
-const SCALE = 3 // 3x the original layout (1800px wide) → a much sharper strip
+const SCALE = 3
 export const STRIP_WIDTH = 600 * SCALE
 export const PHOTO_COUNT = 3
 
-const OUTER_PADDING = 18 * SCALE
+const OUTER_PADDING = 28 * SCALE
 const GAP = 14 * SCALE
 const FOOTER_HEIGHT = 60 * SCALE
-const PHOTO_ASPECT = 4 / 3 // width / height
+const PHOTO_ASPECT = 4 / 3
 const CORNER_RADIUS = 14 * SCALE
 const BORDER_WIDTH = 4 * SCALE
 
-const SLOT_WIDTH = STRIP_WIDTH - OUTER_PADDING * 2 // 1692
-const SLOT_HEIGHT = Math.round(SLOT_WIDTH / PHOTO_ASPECT) // 1269
+const FIXED_HEIGHT = 4179
 
-/** 2-photo mode uses portrait (3:4) slots, centred horizontally in the frame. */
-const PORTRAIT_SLOT_WIDTH = 400 * SCALE // 1200
-const PORTRAIT_SLOT_HEIGHT = Math.round((PORTRAIT_SLOT_WIDTH * 4) / 3) // 1600
+const SLOT_WIDTH = STRIP_WIDTH - OUTER_PADDING * 2
+const SLOT_HEIGHT = Math.round(SLOT_WIDTH / PHOTO_ASPECT)
+const REFERENCE_CONTENT =
+  PHOTO_COUNT * SLOT_HEIGHT + (PHOTO_COUNT - 1) * GAP + FOOTER_HEIGHT
+const REFERENCE_TOP = Math.floor((FIXED_HEIGHT - REFERENCE_CONTENT) / 2)
 
-/**
- * The strip canvas is ALWAYS this tall (the 3-photo height). A 2-photo strip
- * vertically centres its photos + footer inside the same canvas and the rest of
- * the frame is filled with the theme's motif, so the exported PNG length never
- * changes.
- */
-const FIXED_HEIGHT =
-  OUTER_PADDING * 2 + PHOTO_COUNT * SLOT_HEIGHT + (PHOTO_COUNT - 1) * GAP + FOOTER_HEIGHT // 4179
+const PORTRAIT_GAP = GAP * 3
+const PORTRAIT_SLOT_HEIGHT = Math.floor(
+  (FIXED_HEIGHT - REFERENCE_TOP * 2 - PORTRAIT_GAP - FOOTER_HEIGHT) / 2,
+)
 
-/** Total canvas height — always the 3-photo height (see above). */
+export function getSlotAspect(count) {
+  return count === 2 ? SLOT_WIDTH / PORTRAIT_SLOT_HEIGHT : SLOT_WIDTH / SLOT_HEIGHT
+}
+
 export function getStripHeight() {
   return FIXED_HEIGHT
 }
 
-/** Loads data-URL photos into HTMLImageElements (resolves once decoded). */
 export function loadImages(items) {
   return Promise.all(
     items.map(
@@ -79,11 +52,6 @@ export function loadImages(items) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Motifs (cute patterns for the frame)
-// ---------------------------------------------------------------------------
-
-/** Deterministic PRNG so every redraw of the same theme looks identical. */
 function seededRandom(seedText) {
   let seed = 0
   for (let i = 0; i < seedText.length; i += 1) {
@@ -148,7 +116,7 @@ function flowerPath(ctx, size, holeColor) {
     ctx.arc(x, y, petalRadius, 0, Math.PI * 2)
   }
   ctx.fill()
-  // punched-out centre in the frame colour
+
   ctx.beginPath()
   ctx.arc(0, 0, size * 0.3, 0, Math.PI * 2)
   ctx.fillStyle = holeColor
@@ -193,7 +161,6 @@ const MOTIF_LAYOUT = {
   sparkles: { stepX: 70 * SCALE, stepY: 64 * SCALE, size: 15 * SCALE },
 }
 
-/** Tiles the theme's motif over the whole canvas (behind the photos). */
 function drawPattern(ctx, theme, width, height) {
   const type = theme.pattern
   if (!type) return
@@ -224,8 +191,6 @@ function drawPattern(ctx, theme, width, height) {
   ctx.restore()
 }
 
-// ---------------------------------------------------------------------------
-
 function roundedRectPath(ctx, x, y, w, h, radius) {
   if (typeof ctx.roundRect === 'function') {
     ctx.roundRect(x, y, w, h, radius)
@@ -234,7 +199,6 @@ function roundedRectPath(ctx, x, y, w, h, radius) {
   }
 }
 
-/** Draws an image "cover"-style (fill the slot, crop the overflow, stay centred). */
 function drawCover(ctx, img, x, y, w, h) {
   const iw = img.naturalWidth || img.width
   const ih = img.naturalHeight || img.height
@@ -246,11 +210,6 @@ function drawCover(ctx, img, x, y, w, h) {
   ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh)
 }
 
-/**
- * Renders the full photo strip onto `canvas`.
- * Re-runs whenever the photos, the selected theme, the selected filter, or AR filter change.
- * `options.quality` (0.4..1) scales internal beauty processing to keep preview/result in sync.
- */
 export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, options = {}) {
   if (!canvas || !images?.length) return
   const ctx = canvas.getContext('2d')
@@ -260,34 +219,26 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, option
   const width = STRIP_WIDTH
   const height = getStripHeight()
 
-  // For 2 photos use portrait (3:4) slots centred horizontally; the frame on
-  // both sides stays filled with the theme's motif.
   const count = images.length
   const portrait = count === 2
-  const slotWidth = portrait ? PORTRAIT_SLOT_WIDTH : SLOT_WIDTH
+  const slotWidth = SLOT_WIDTH
   const slotHeight = portrait ? PORTRAIT_SLOT_HEIGHT : SLOT_HEIGHT
   const slotX = Math.round((width - slotWidth) / 2)
-  const gap = portrait ? GAP * 3 : GAP // more breathing room between tall photos
+  const gap = portrait ? PORTRAIT_GAP : GAP
 
-  // Vertically centre (photos + footer) inside the fixed-height canvas.
   const contentHeight = count * slotHeight + (count - 1) * gap + FOOTER_HEIGHT
   const topOffset = Math.floor((height - contentHeight) / 2)
 
-  // Setting width/height resets the context, so do it first.
   canvas.width = width
   canvas.height = height
 
-  // Highest-quality resampling when scaling photos into slots (must be set
-  // after the resize that resets the context).
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
 
-  // 1. Frame background (theme colour) + cute motif.
   ctx.fillStyle = theme.frame
   ctx.fillRect(0, 0, width, height)
   drawPattern(ctx, theme, width, height)
 
-  // 2. Photos, one slot per photo.
   images.forEach((img, index) => {
     const x = slotX
     const y = topOffset + index * (slotHeight + gap)
@@ -299,9 +250,6 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, option
     ctx.fillStyle = theme.photoFallback
     ctx.fillRect(x, y, slotWidth, slotHeight)
 
-    // Apply beauty/color pipeline to the photo (level 3), preserving frame & accents.
-    // Photos are captured as mirrored selfies while landmarks remain in raw video
-    // space, so beauty masking mirrors X against the full image.
     const iw = img.naturalWidth || img.width
     const ih = img.naturalHeight || img.height
     if (iw && ih) {
@@ -332,7 +280,6 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, option
       ctx.filter = 'none'
     }
 
-    // Render AR Face props if present and landmarks exist (renderArOverlay untouched)
     if (arFilterId && arFilterId !== 'none' && img._landmarks?.length) {
       ctx.filter = 'none'
       if (iw && ih) {
@@ -342,19 +289,18 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, option
         const dx = x + (slotWidth - dw) / 2
         const dy = y + (slotHeight - dh) / 2
 
-        // Captured screenshots are mirrored selfies; landmarks are in raw video
-        // space, so mirror x to align the overlay with the image.
         const toSlotCanvas = (nx, ny) => ({
           x: dx + (1 - nx) * dw,
           y: dy + ny * dh,
         })
 
-        renderArFilter(ctx, liftForeheadLandmarks(img._landmarks), toSlotCanvas, arFilterId)
+        const arFaces = Array(32).fill(null)
+        if (Array.isArray(img._landmarks)) arFaces.push(...img._landmarks)
+        renderArFilter(ctx, arFaces, toSlotCanvas, arFilterId)
       }
     }
     ctx.restore()
 
-    // Accent border on top of the photo.
     ctx.save()
     ctx.beginPath()
     roundedRectPath(ctx, x, y, slotWidth, slotHeight, CORNER_RADIUS)
@@ -364,7 +310,6 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, option
     ctx.restore()
   })
 
-  // 3. Footer (emoji + brand + date) on the frame.
   const footerTop = topOffset + images.length * slotHeight + (images.length - 1) * gap
   const footerCenterY = footerTop + FOOTER_HEIGHT / 2
 
@@ -373,7 +318,7 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, option
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
   ctx.font = `800 ${24 * SCALE}px Poppins, ui-sans-serif, system-ui, -apple-system, sans-serif`
-  ctx.fillText(`${theme.emoji ?? ''} POTOBUT`.trim(), OUTER_PADDING, footerCenterY)
+  ctx.fillText(`${theme.emoji ?? ''} PHOTOBU`.trim(), OUTER_PADDING, footerCenterY)
 
   ctx.textAlign = 'right'
   ctx.font = `600 ${18 * SCALE}px Poppins, ui-sans-serif, system-ui, -apple-system, sans-serif`
