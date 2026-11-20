@@ -83,13 +83,43 @@ export default function CameraPanel({ booth }) {
             type="button"
             onClick={handleStart}
             disabled={startDisabled}
-            className={`h-14 px-10 text-[11px] font-semibold uppercase leading-none tracking-[0.22em] transition disabled:cursor-not-allowed disabled:opacity-30 md:cursor-pointer ${accentFill}`}
+            aria-label={
+              phase === 'counting'
+                ? t(lang, 'camera.ready', { n: countdown ?? '' }).trim()
+                : reviewing
+                  ? t(lang, 'camera.takeAgain')
+                  : t(lang, 'camera.start')
+            }
+            title={
+              phase === 'counting'
+                ? t(lang, 'camera.ready', { n: countdown ?? '' }).trim()
+                : reviewing
+                  ? t(lang, 'camera.takeAgain')
+                  : t(lang, 'camera.start')
+            }
+            className={`relative grid size-14 shrink-0 place-items-center transition disabled:cursor-not-allowed disabled:opacity-30 md:cursor-pointer ${accentFill}`}
           >
-            {phase === 'counting'
-              ? t(lang, 'camera.ready', { n: countdown ?? '' }).trim()
-              : reviewing
-                ? t(lang, 'camera.takeAgain')
-                : t(lang, 'camera.start')}
+            {phase === 'counting' ? (
+              <span className="font-mono text-xl font-bold tabular-nums leading-none">
+                {countdown ?? ''}
+              </span>
+            ) : (
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="size-6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="square"
+                strokeLinejoin="miter"
+              >
+                <rect x="2" y="6" width="14" height="12" />
+                <circle cx="9" cy="12" r="3" />
+                <path d="M16 11l6-4v10l-6-4z" />
+              </svg>
+            )}
+            {reviewing && <span className="absolute right-1 top-1 size-1.5 bg-neutral-950" />}
           </button>
 
           <div className={`flex h-14 items-center justify-between gap-4 border px-4 ${line}`}>
