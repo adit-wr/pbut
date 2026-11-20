@@ -1,21 +1,27 @@
 /**
- * Tiny API client. In dev, Vite proxies `/api` to the backend, so relative
- * paths just work. Set VITE_API_BASE to override (e.g. in production).
+ * Tiny API client. The Docker image serves the built frontend and the API from
+ * the same origin, so a relative `/api` path is correct in production.
+ * VITE_API_BASE is only honoured when it is a real remote URL — a leftover
+ * localhost value (common after copy-pasting dev config into Railway) would
+ * make the browser call the phone/laptop itself and fail with "Failed to fetch".
  */
-const API_BASE = import.meta.env.VITE_API_BASE || ''
+const configuredBase = import.meta.env.VITE_API_BASE || ''
+const isRemoteBase =
+  /^https?:\/\//i.test(configuredBase) &&
+  !/(^|\/\/)(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(configuredBase)
+const API_BASE = isRemoteBase ? configuredBase.replace(/\/$/, '') : ''
 
 async function request(path, options = {}) {
   let res
   try {
     res = await fetch(`${API_BASE}${path}`, options)
   } catch (err) {
-    // A network-level failure (no server, proxy down, mixed content) surfaces
-    // as the unhelpful browser message "Failed to fetch". Give a clear cause
-    // instead so the issue can be fixed without guessing.
+    // Network-level failure (server down, proxy timeout, mixed content).
     console.error('API request failed:', err)
-    throw new Error(
-      'Cannot reach the photo service. Make sure the backend is running and open this page from the same origin (e.g. http://localhost:8080).',
-    )
+    const hint = import.meta.env.DEV
+      ? 'Make sure the backend is running on port 4000 (or open http://localhost:8080).'
+      : 'Check the service logs and try again.'
+    throw new Error(`Cannot reach the photo service. ${hint}`)
   }
 
   let data = null

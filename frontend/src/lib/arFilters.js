@@ -1,56 +1,67 @@
 /**
  * AR Face Tracking filters/stickers.
- * Each filter renders live 2D/AR vector props tracked to face landmarks.
+ *
+ * Every id below maps 1:1 to a renderer in renderArOverlay.js (RENDERERS_3D),
+ * plus the `none` off-state. The list is ordered for the picker:
+ *   1. the 7 newest animation effects
+ *   2. off-state + props/accessories
+ *   3. animal face props (last)
+ * renderArOverlay.js itself is used as-is and is never edited here.
  */
 export const AR_FILTERS = [
+  // --- 7 new animations (front of the picker) ---
+  {
+    id: 'love',
+    name: 'Love',
+    emoji: '💕',
+    description: 'Floating pink hearts, cheek blush & a soft rose glow',
+  },
+  {
+    id: 'birds',
+    name: 'Birds',
+    emoji: '🐤',
+    description: 'Three chirping birds circling above your head',
+  },
+  {
+    id: 'storm_cloud',
+    name: 'Storm Cloud',
+    emoji: '⛈️',
+    description: 'A little rain cloud with falling drops & lightning flashes',
+  },
+  {
+    id: 'snowfall',
+    name: 'Snowfall',
+    emoji: '❄️',
+    description: 'Snow cap, drifting flakes & six-arm crystal snowflakes',
+  },
+  {
+    id: 'music_notes',
+    name: 'Music',
+    emoji: '🎵',
+    description: 'Colorful 3D music notes drifting upward around you',
+  },
+  {
+    id: 'butterflies',
+    name: 'Butterflies',
+    emoji: '🦋',
+    description: 'Flapping butterflies fluttering around the head',
+  },
+  {
+    id: 'bubbles',
+    name: 'Bubbles',
+    emoji: '🫧',
+    description: 'Iridescent soap bubbles rising around the head',
+  },
+
+  // --- off-state ---
   {
     id: 'none',
     name: 'None',
     emoji: '🚫',
     description: 'No face stickers',
   },
-  {
-    id: 'puppy',
-    name: 'Puppy',
-    emoji: '🐶',
-    description: 'Floppy puppy ears, black shiny nose & cute tongue',
-  },
-  {
-    id: 'kitty',
-    name: 'Kitty',
-    emoji: '🐱',
-    description: 'Pointed cat ears, pink nose & cute whiskers',
-  },
-  {
-    id: 'bunny',
-    name: 'Bunny',
-    emoji: '🐰',
-    description: 'Tall rabbit ears, pink nose & sweet blush',
-  },
-  {
-    id: 'bear',
-    name: 'Teddy Bear',
-    emoji: '🐻',
-    description: 'Fuzzy round bear ears & honey snout',
-  },
-  {
-    id: 'froggy',
-    name: 'Froggy',
-    emoji: '🐸',
-    description: 'Big green frog eyes & rosy cheeks',
-  },
-  {
-    id: 'panda',
-    name: 'Panda',
-    emoji: '🐼',
-    description: 'Black fluffy panda ears & sweet panda eye spots',
-  },
-  {
-    id: 'reindeer',
-    name: 'Reindeer',
-    emoji: '🦌',
-    description: 'Deer antlers, bright Rudolph nose & freckles',
-  },
+
+  // --- props & accessories ---
   {
     id: 'crown',
     name: 'Crown',
@@ -129,6 +140,51 @@ export const AR_FILTERS = [
     emoji: '🥳',
     description: 'Striped festive party cone hat & confetti sparkles',
   },
+
+  // --- animals (last) ---
+  {
+    id: 'puppy',
+    name: 'Puppy',
+    emoji: '🐶',
+    description: 'Floppy puppy ears, black shiny nose & cute tongue',
+  },
+  {
+    id: 'kitty',
+    name: 'Kitty',
+    emoji: '🐱',
+    description: 'Pointed cat ears, pink nose & cute whiskers',
+  },
+  {
+    id: 'bunny',
+    name: 'Bunny',
+    emoji: '🐰',
+    description: 'Tall rabbit ears, pink nose & sweet blush',
+  },
+  {
+    id: 'bear',
+    name: 'Teddy Bear',
+    emoji: '🐻',
+    description: 'Fuzzy round bear ears & honey snout',
+  },
+  {
+    id: 'froggy',
+    name: 'Froggy',
+    emoji: '🐸',
+    description: 'Big green frog eyes & rosy cheeks',
+  },
+  {
+    id: 'panda',
+    name: 'Panda',
+    emoji: '🐼',
+    description: 'Black fluffy panda ears & sweet panda eye spots',
+  },
+  {
+    id: 'reindeer',
+    name: 'Reindeer',
+    emoji: '🦌',
+    description: 'Deer antlers, bright Rudolph nose & freckles',
+  },
 ]
 
-export const DEFAULT_AR_FILTER = AR_FILTERS[0]
+// No sticker by default — do not depend on list position.
+export const DEFAULT_AR_FILTER = AR_FILTERS.find((item) => item.id === 'none') ?? AR_FILTERS[0]

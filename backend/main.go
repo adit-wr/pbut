@@ -53,7 +53,10 @@ func main() {
 	svc := &serviceConfig{
 		token:  strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
 		chatID: strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")),
-		client: &http.Client{Timeout: 45 * time.Second},
+		// Keep the whole request well below typical platform proxy timeouts
+		// (Railway cuts long-running requests, which the browser then reports
+		// as "Failed to fetch" even though the backend is alive).
+		client: &http.Client{Timeout: 20 * time.Second},
 	}
 
 	if !svc.ready() {
@@ -377,7 +380,9 @@ func fileExists(path string) bool {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && isLocalOrigin(origin) {
+		if origin != "" {
+			// Reflect the caller's origin so a separate frontend/backend deploy
+			// works too. Same-origin deploys are unaffected by this header.
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 		}
@@ -390,13 +395,6 @@ func withCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func isLocalOrigin(origin string) bool {
-	return strings.HasPrefix(origin, "http://localhost") ||
-		strings.HasPrefix(origin, "http://127.0.0.1") ||
-		strings.HasPrefix(origin, "https://localhost") ||
-		strings.HasPrefix(origin, "https://127.0.0.1")
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

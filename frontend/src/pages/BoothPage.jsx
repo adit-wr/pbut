@@ -526,12 +526,12 @@ export default function BoothPage() {
             />
           </div>
 
-          {/* 06 — Strip */}
-          <section className="min-w-0 lg:col-span-5 lg:col-start-5 lg:row-start-4">
-            <p className={`${label} ${muted} mb-4 border-t pt-4 ${line}`}>
+          {/* 06 — Strip (full-bleed on mobile, capped on desktop) */}
+          <section className="min-w-0 -mx-5 sm:-mx-8 lg:mx-0 lg:col-span-5 lg:col-start-5 lg:row-start-4">
+            <p className={`${label} ${muted} mx-5 mb-4 border-t pt-4 sm:mx-8 lg:mx-0 ${line}`}>
               <span className={`${accent} mr-2`}>06</span>Strip
             </p>
-            <div className="max-w-[340px]">
+            <div className="w-full lg:max-w-[340px]">
               <StripCanvas
                 photos={photos}
                 theme={theme}

@@ -4,8 +4,8 @@
  * glow/soft focus, and clarity — with natural, flattering tones (no weird color casts).
  *
  * Every filter includes face whitening, cheek blush, and lip tint with DIFFERENT
- * intensities (ketebalan berbeda-beda) — including Natural (kept very subtle).
- * Whitening is kept natural/gentle (tidak terlalu putih).
+ * intensities (ketebalan berbeda-beda), except "Natural" which is a pure
+ * passthrough with zero effects. Whitening is kept natural/gentle.
  *
  * Beauty params:
  *  - smooth:  skin smoothing (0..1)
@@ -24,8 +24,9 @@ export const FILTERS = [
     emoji: '✨',
     colorFilter: 'none',
     cssFilter: 'none',
-    beauty: { smooth: 0.22, glow: 0.08, sharpen: 0.05, whiten: 0.04, cheek: 0.1, cheekColor: '255,150,160', lip: 0.08, lipColor: '#e6a4ae' },
-    effects: { vignette: 0.05, grain: 0.03 },
+    // Pure passthrough: no smoothing, grading, makeup, glow or overlay at all.
+    beauty: { smooth: 0, glow: 0, sharpen: 0, whiten: 0, cheek: 0, lip: 0 },
+    effects: { vignette: 0, grain: 0 },
   },
   {
     id: 'clean',
@@ -394,6 +395,69 @@ export const FILTERS = [
     cssFilter: 'brightness(108%) contrast(102%) saturate(103%)',
     beauty: { smooth: 0.5, glow: 0.18, sharpen: 0.06, whiten: 0.28, cheek: 0.22, cheekColor: '255,132,150', lip: 0.36, lipColor: '#d44a66' },
     effects: { vignette: 0.06, grain: 0.02 },
+  },
+  {
+    id: 'dewy',
+    name: 'Dewy Glow',
+    emoji: '💧',
+    colorFilter: 'brightness(105%) contrast(98%) saturate(103%)',
+    cssFilter: 'brightness(105%) contrast(98%) saturate(103%)',
+    beauty: { smooth: 0.52, glow: 0.28, sharpen: 0.05, whiten: 0.16, cheek: 0.32, cheekColor: '255,135,155', lip: 0.24, lipColor: '#e29aa8' },
+    effects: { vignette: 0.06, grain: 0.02 },
+  },
+  {
+    id: 'petal',
+    name: 'Petal Cheeks',
+    emoji: '🌷',
+    colorFilter: 'brightness(104%) contrast(99%) saturate(105%)',
+    cssFilter: 'brightness(104%) contrast(99%) saturate(105%)',
+    beauty: { smooth: 0.44, glow: 0.18, sharpen: 0.06, whiten: 0.14, cheek: 0.46, cheekColor: '255,125,148', lip: 0.2, lipColor: '#e6a0ad' },
+    effects: { vignette: 0.07, grain: 0.02 },
+  },
+  {
+    id: 'glossy',
+    name: 'Glossy Lips',
+    emoji: '💄',
+    colorFilter: 'brightness(104%) contrast(102%) saturate(104%)',
+    cssFilter: 'brightness(104%) contrast(102%) saturate(104%)',
+    beauty: { smooth: 0.46, glow: 0.2, sharpen: 0.1, whiten: 0.16, cheek: 0.26, cheekColor: '255,138,156', lip: 0.42, lipColor: '#d9718c' },
+    effects: { vignette: 0.07, grain: 0.02 },
+  },
+  {
+    id: 'silk',
+    name: 'Silk Smooth',
+    emoji: '🧴',
+    colorFilter: 'brightness(103%) contrast(99%) saturate(102%)',
+    cssFilter: 'brightness(103%) contrast(99%) saturate(102%)',
+    beauty: { smooth: 0.68, glow: 0.14, sharpen: 0.04, whiten: 0.12, cheek: 0.18, cheekColor: '255,148,162', lip: 0.14, lipColor: '#e8aeb9' },
+    effects: { vignette: 0.05, grain: 0.02 },
+  },
+  {
+    id: 'sunlit',
+    name: 'Sunlit',
+    emoji: '☀️',
+    colorFilter: 'brightness(107%) contrast(102%) saturate(104%)',
+    cssFilter: 'brightness(107%) contrast(102%) saturate(104%)',
+    beauty: { smooth: 0.38, glow: 0.24, sharpen: 0.07, whiten: 0.18, cheek: 0.3, cheekColor: '255,132,150', lip: 0.22, lipColor: '#df98a6' },
+    effects: { vignette: 0.05, grain: 0.02 },
+  },
+  {
+    id: 'nightcare',
+    name: 'Night Care',
+    emoji: '🌙',
+    colorFilter: 'brightness(103%) contrast(96%) saturate(103%)',
+    cssFilter: 'brightness(103%) contrast(96%) saturate(103%)',
+    beauty: { smooth: 0.55, glow: 0.3, sharpen: 0.03, whiten: 0.2, cheek: 0.24, cheekColor: '255,142,158', lip: 0.18, lipColor: '#e4a2af' },
+    effects: { vignette: 0.06, grain: 0.02 },
+  },
+  {
+    id: 'velvet',
+    name: 'Velvet Finish',
+    emoji: '🍇',
+    colorFilter: 'brightness(104%) contrast(104%) saturate(102%)',
+    cssFilter: 'brightness(104%) contrast(104%) saturate(102%)',
+    beauty: { smooth: 0.5, glow: 0.12, sharpen: 0.12, whiten: 0.18, cheek: 0.28, cheekColor: '255,130,152', lip: 0.34, lipColor: '#d97e93' },
+    effects: { vignette: 0.08, grain: 0.03 },
   },
 ]
 
