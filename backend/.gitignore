@@ -1,4 +1,13 @@
-node_modules/
+# Environment
 .env
-*.log
+
+# Local binaries
+server
+photobooth-backend
+*.exe
+
+# OS
 .DS_Store
+
+# Logs
+*.log

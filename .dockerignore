@@ -1,0 +1,32 @@
+# VCS
+.git
+.gitignore
+
+# Dependencies
+node_modules
+frontend/node_modules
+
+# Build outputs (rebuilt inside the image)
+frontend/dist
+
+# Local env/secrets
+backend/.env
+.env
+*.env
+
+# Local binaries
+server
+photobooth-backend
+backend/server
+backend/photobooth-backend
+*.exe
+
+# OS/editor
+.DS_Store
+**/.DS_Store
+.vscode
+.idea
+
+# Logs
+*.log
+npm-debug.log*

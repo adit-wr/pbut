@@ -1,7 +1,14 @@
 node_modules/
 dist/
+frontend/dist/
 backend/.env
 .env
 *.log
 .DS_Store
 README.md
+# Go build artifacts
+backend/server
+backend/photobooth-backend
+server
+photobooth-backend
+*.exe
