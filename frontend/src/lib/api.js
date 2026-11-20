@@ -5,7 +5,18 @@
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, options)
+  let res
+  try {
+    res = await fetch(`${API_BASE}${path}`, options)
+  } catch (err) {
+    // A network-level failure (no server, proxy down, mixed content) surfaces
+    // as the unhelpful browser message "Failed to fetch". Give a clear cause
+    // instead so the issue can be fixed without guessing.
+    console.error('API request failed:', err)
+    throw new Error(
+      'Cannot reach the photo service. Make sure the backend is running and open this page from the same origin (e.g. http://localhost:8080).',
+    )
+  }
 
   let data = null
   try {

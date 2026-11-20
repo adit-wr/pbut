@@ -39,7 +39,7 @@ export default function BoothPage() {
   const [themeId, setThemeId] = useState(DEFAULT_THEME.id)
   const [filterId, setFilterId] = useState(DEFAULT_FILTER.id)
   const [arFilterId, setArFilterId] = useState(DEFAULT_AR_FILTER.id)
-  const [darkMode, setDarkMode] = useState(true)
+  const [darkMode, setDarkMode] = useState(false)
   const [save, setSave] = useState(SAVE_IDLE)
   const [camError, setCamError] = useState(null)
   const [captureError, setCaptureError] = useState(null)
@@ -329,38 +329,80 @@ export default function BoothPage() {
 
             <div>
               <p className={`${label} ${muted}`}>Mode</p>
-              <div
-                role="group"
-                aria-label="Colour mode"
-                className={`mt-2 flex divide-x border ${line} ${
-                  darkMode ? 'divide-neutral-800' : 'divide-neutral-200'
-                }`}
-              >
+              <div role="group" aria-label="Colour mode" className="mt-3 flex items-center gap-3">
+                {/* Light — circular toggle with a rotating, colour-shifting ring */}
                 <button
                   type="button"
                   onClick={() => setDarkMode(false)}
                   aria-pressed={!darkMode}
-                  className={`${control} md:cursor-pointer ${!darkMode ? controlOn : controlOff}`}
+                  aria-label="Light mode"
+                  title="Light mode"
+                  className={`relative grid size-11 place-items-center rounded-full transition-all duration-200 hover:scale-100 hover:opacity-100 hover:ring-2 hover:ring-pink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 md:cursor-pointer ${
+                    darkMode ? 'scale-90 opacity-50' : 'scale-100 opacity-100'
+                  }`}
                 >
-                  Light
+                  <span className="animate-ring-spin pointer-events-none absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#f9a8d4,#ec4899,#fbcfe8,#f9a8d4)]" />
+                  <span
+                    className={`relative z-10 grid size-9 place-items-center rounded-full ${
+                      darkMode ? 'bg-neutral-950' : 'bg-white'
+                    }`}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className={`h-4 w-4 ${darkMode ? 'text-pink-300' : 'text-pink-600'}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="square"
+                      strokeLinejoin="miter"
+                    >
+                      <circle cx="12" cy="12" r="4" />
+                      <path d="M12 3v2M12 19v2M5.64 5.64l1.41 1.41M16.95 16.95l1.41 1.41M3 12h2M19 12h2M5.64 18.36l1.41-1.41M16.95 7.05l1.41-1.41" />
+                    </svg>
+                  </span>
                 </button>
+
+                {/* Dark — circular toggle with a rotating, colour-shifting ring */}
                 <button
                   type="button"
                   onClick={() => setDarkMode(true)}
                   aria-pressed={darkMode}
-                  className={`${control} md:cursor-pointer ${darkMode ? controlOn : controlOff}`}
+                  aria-label="Dark mode"
+                  title="Dark mode"
+                  className={`relative grid size-11 place-items-center rounded-full transition-all duration-200 hover:scale-100 hover:opacity-100 hover:ring-2 hover:ring-pink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 md:cursor-pointer ${
+                    darkMode ? 'scale-100 opacity-100' : 'scale-90 opacity-50'
+                  }`}
                 >
-                  Dark
+                  <span className="animate-ring-spin pointer-events-none absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#fbcfe8,#db2777,#f9a8d4,#fbcfe8)]" />
+                  <span
+                    className={`relative z-10 grid size-9 place-items-center rounded-full ${
+                      darkMode ? 'bg-neutral-950' : 'bg-white'
+                    }`}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className={`h-4 w-4 ${darkMode ? 'text-pink-300' : 'text-pink-600'}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="square"
+                      strokeLinejoin="miter"
+                    >
+                      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />
+                    </svg>
+                  </span>
                 </button>
               </div>
             </div>
           </div>
         </header>
 
-        <main className="grid grid-cols-1 gap-x-10 gap-y-12 pt-10 lg:grid-cols-12">
-          {/* 02 — Camera */}
-          <section ref={cameraSectionRef} className="scroll-mt-6 lg:col-span-7">
-            <div className={`mb-4 flex items-baseline justify-between border-t pt-4 ${line}`}>
+        <main className="grid grid-cols-1 gap-x-10 gap-y-8 pt-10 lg:grid-cols-12">
+          {/* 02 — Camera header */}
+          <div className={`border-t pt-4 lg:col-span-7 lg:row-start-1 ${line}`}>
+            <div className="flex items-baseline justify-between">
               <p className={`${label} ${muted}`}>
                 <span className={`${accent} mr-2`}>02</span>Camera
               </p>
@@ -368,7 +410,13 @@ export default function BoothPage() {
                 {photoCount} frames · {COUNTDOWN_SECONDS}s
               </p>
             </div>
+          </div>
 
+          {/* 02 — Camera preview */}
+          <div
+            ref={cameraSectionRef}
+            className="scroll-mt-6 lg:col-span-7 lg:row-start-2"
+          >
             <CameraStage
               webcamRef={webcamRef}
               countdown={countdown}
@@ -397,8 +445,11 @@ export default function BoothPage() {
                 {captureError}
               </p>
             )}
+          </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-stretch">
+          {/* 02 — Controls */}
+          <div className="lg:col-span-7 lg:row-start-3">
+            <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-stretch">
               <button
                 type="button"
                 onClick={handleStart}
@@ -433,11 +484,11 @@ export default function BoothPage() {
                 </p>
               </div>
             </div>
-          </section>
+          </div>
 
-          {/* 03–05 — Pickers */}
-          <aside className="flex min-w-0 flex-col gap-8 lg:col-span-5">
-            <div className={`border-t pt-4 ${line}`}>
+          {/* 03–04 — four rows each, beside the camera on desktop */}
+          <div className="flex min-w-0 flex-col gap-6 lg:col-span-5 lg:col-start-8 lg:row-start-2 lg:row-span-2 lg:h-full">
+            <div className={`flex flex-col border-t pt-4 ${line} lg:flex-1`}>
               <p className={`${label} ${muted} mb-3`}>
                 <span className={`${accent} mr-2`}>03</span>Face
               </p>
@@ -449,7 +500,7 @@ export default function BoothPage() {
               />
             </div>
 
-            <div className={`border-t pt-4 ${line}`}>
+            <div className={`flex flex-col border-t pt-4 ${line} lg:flex-1`}>
               <p className={`${label} ${muted} mb-3`}>
                 <span className={`${accent} mr-2`}>04</span>Finish
               </p>
@@ -460,22 +511,23 @@ export default function BoothPage() {
                 darkMode={darkMode}
               />
             </div>
+          </div>
 
-            <div className={`border-t pt-4 ${line}`}>
-              <p className={`${label} ${muted} mb-3`}>
-                <span className={`${accent} mr-2`}>05</span>Frame
-              </p>
-              <ThemePicker
-                value={themeId}
-                onChange={setThemeId}
-                disabled={phase === 'counting'}
-                darkMode={darkMode}
-              />
-            </div>
-          </aside>
+          {/* 05 — Frame */}
+          <div className={`border-t pt-4 lg:col-span-4 lg:col-start-1 lg:row-start-4 ${line}`}>
+            <p className={`${label} ${muted} mb-3`}>
+              <span className={`${accent} mr-2`}>05</span>Frame
+            </p>
+            <ThemePicker
+              value={themeId}
+              onChange={setThemeId}
+              disabled={phase === 'counting'}
+              darkMode={darkMode}
+            />
+          </div>
 
           {/* 06 — Strip */}
-          <section className="min-w-0 lg:col-span-6">
+          <section className="min-w-0 lg:col-span-5 lg:col-start-5 lg:row-start-4">
             <p className={`${label} ${muted} mb-4 border-t pt-4 ${line}`}>
               <span className={`${accent} mr-2`}>06</span>Strip
             </p>
@@ -493,15 +545,15 @@ export default function BoothPage() {
             </div>
           </section>
 
-          {/* 07 — Output */}
-          <section className="min-w-0 lg:col-span-6">
+          {/* 07 — Output: beside 06 Strip, stacked downward */}
+          <section className="min-w-0 lg:col-span-3 lg:col-start-10 lg:row-start-4">
             <p className={`${label} ${muted} mb-4 border-t pt-4 ${line}`}>
               <span className={`${accent} mr-2`}>07</span>Output
             </p>
 
             {save.status !== 'idle' && (
               <div
-                className={`mb-4 flex items-start justify-between gap-4 border-l-2 pl-3 text-[13px] ${
+                className={`mb-4 flex flex-col gap-2 border-l-2 pl-3 text-[13px] ${
                   save.status === 'success'
                     ? darkMode
                       ? 'border-pink-300 text-pink-200'
@@ -523,7 +575,7 @@ export default function BoothPage() {
                   <button
                     type="button"
                     onClick={handleRetryUpload}
-                    className="shrink-0 font-semibold uppercase tracking-[0.14em] underline underline-offset-4 md:cursor-pointer"
+                    className="shrink-0 self-start font-semibold uppercase tracking-[0.14em] underline underline-offset-4 md:cursor-pointer"
                   >
                     Retry
                   </button>
@@ -531,7 +583,7 @@ export default function BoothPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-3">
               <button
                 type="button"
                 onClick={handleDownload}

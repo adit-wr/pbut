@@ -1,6 +1,15 @@
 import { useEffect } from 'react'
-import { drawPhotoStrip, getStripHeight, STRIP_WIDTH } from '../lib/stripCanvas'
+import { drawPhotoStrip, getStripHeight, loadImages, STRIP_WIDTH } from '../lib/stripCanvas'
 
+/**
+ * Renders the photo strip on an HTML5 canvas.
+ *
+ * `drawPhotoStrip` is a synchronous renderer that expects already-decoded
+ * HTMLImageElements (with `_landmarks` attached by `loadImages`). It returns
+ * nothing — so we must load the images ourselves and notify `onDrawn` after the
+ * draw completes. Calling `.then()` on its return value crashes React and
+ * blanks the page as soon as the first photo arrives.
+ */
 export default function StripCanvas({
   photos,
   theme,
@@ -12,23 +21,33 @@ export default function StripCanvas({
   darkMode = true,
 }) {
   useEffect(() => {
+    if (photos.length === 0) return undefined
     const canvas = canvasRef?.current
-    if (!canvas) return
+    if (!canvas) return undefined
 
-    // Clear immediately so stale artwork never lingers between sessions (e.g.
-    // after retake or when the photo count / canvas height changes) and so a
-    // 2-photo strip can never export with a blank 3rd frame.
-    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
+    let stale = false
 
-    // The drawn-count sentinel is driven ONLY by a completed draw (never by
-    // clearing). This guarantees callers that the bitmap is finished artwork
-    // and never a blank intermediate canvas.
-    let alive = true
-    drawPhotoStrip(canvas, photos, theme, filter, arFilterId, quality).then((count) => {
-      if (alive) onDrawn?.(count)
-    })
+    // Clear immediately so stale artwork never lingers between sessions
+    // (retake, photo-count change, theme/filter/AR change).
+    const ctx = canvas.getContext('2d')
+    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    loadImages(photos)
+      .then((images) => {
+        if (stale || !canvasRef.current) return
+        drawPhotoStrip(canvasRef.current, images, theme, filter, arFilterId, { quality })
+        // Sentinel: only a completed draw unlocks export/upload.
+        if (!stale) onDrawn?.(images.length)
+      })
+      .catch((err) => {
+        // Never let a bad capture blank the page. Report a zero count so the
+        // caller can show a proper error instead of hanging on "processing".
+        console.error('Failed to render photo strip:', err)
+        if (!stale) onDrawn?.(0)
+      })
+
     return () => {
-      alive = false
+      stale = true
     }
   }, [canvasRef, photos, theme, filter, arFilterId, quality, onDrawn])
 

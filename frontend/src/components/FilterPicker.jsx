@@ -1,7 +1,7 @@
 import { FILTERS } from '../lib/filters'
 
 /**
- * Beauty finish picker — two rows, horizontal rail, no visible scrollbar.
+ * Beauty finish picker — four rows, horizontal rail, no visible scrollbar.
  * Swiss styling: hairline chips, single light-pink accent, no decoration.
  */
 export default function FilterPicker({ value, onChange, disabled, darkMode = true }) {
@@ -13,7 +13,7 @@ export default function FilterPicker({ value, onChange, disabled, darkMode = tru
       <p className={`mb-2 text-[10px] font-bold uppercase leading-none tracking-[0.22em] ${muted}`}>
         Beauty finish
       </p>
-      <div className="grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
+      <div className="grid grid-rows-4 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {FILTERS.map((filter) => {
           const active = filter.id === value
           return (

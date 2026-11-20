@@ -30,6 +30,15 @@
   }
 
   --animate-flash: flash-fade 260ms ease-out both;
+
+  /* Rotating colour-shifting ring for the light / dark toggle */
+  @keyframes ring-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  --animate-ring-spin: ring-spin 5s linear infinite;
 }
 
 html,

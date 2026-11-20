@@ -1,7 +1,7 @@
 import { AR_FILTERS } from '../lib/arFilters'
 
 /**
- * AR face-tracking picker — two rows, horizontal rail, no visible scrollbar.
+ * AR face-tracking picker — four rows, horizontal rail, no visible scrollbar.
  * Swiss styling: hairline chips, single light-pink accent, no decoration.
  */
 export default function ArFilterPicker({ value, onChange, disabled, darkMode = true }) {
@@ -13,7 +13,7 @@ export default function ArFilterPicker({ value, onChange, disabled, darkMode = t
       <p className={`mb-2 text-[10px] font-bold uppercase leading-none tracking-[0.22em] ${muted}`}>
         Face tracking
       </p>
-      <div className="grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
+      <div className="grid grid-rows-4 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {AR_FILTERS.map((item) => {
           const active = item.id === value
           return (

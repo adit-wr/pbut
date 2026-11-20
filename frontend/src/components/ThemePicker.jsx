@@ -10,7 +10,7 @@ export default function ThemePicker({ value, onChange, disabled, darkMode = true
       <p className="mb-2 text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-neutral-500">
         Frame &amp; motif
       </p>
-      <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto pr-1 no-scrollbar sm:max-h-80">
+      <div className="grid max-h-48 grid-cols-3 gap-2 overflow-y-auto pr-1 no-scrollbar sm:max-h-56">
         {THEMES.map((theme) => {
           const active = theme.id === value
           return (
@@ -31,7 +31,7 @@ export default function ThemePicker({ value, onChange, disabled, darkMode = true
             >
               {/* mini strip preview */}
               <span
-                className="flex h-11 flex-col gap-[3px] p-[3px]"
+                className="flex h-9 flex-col gap-[3px] p-[3px]"
                 style={{ backgroundColor: theme.frame }}
               >
                 {[0, 1, 2].map((slot) => (
