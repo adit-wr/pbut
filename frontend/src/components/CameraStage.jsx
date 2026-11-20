@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import Webcam from 'react-webcam'
 import { getFaceLandmarker } from '../lib/faceTracker'
 import { renderArFilter } from '../lib/renderArOverlay'
+import { drawBeautified } from '../lib/beautyPipeline'
 
 function describeCameraError(err) {
   const name = err?.name || String(err)
@@ -20,7 +21,9 @@ function describeCameraError(err) {
 }
 
 /**
- * Live camera stage with countdown overlay, AR face tracking overlay, and on/off switch.
+ * Live camera stage with countdown overlay, level-3 beauty pipeline, and AR face tracking.
+ * Renders the video through a beautified canvas (mirrored selfie) and draws AR props on top.
+ * renderArOverlay.js is used as-is.
  */
 export default function CameraStage({
   webcamRef,
@@ -37,29 +40,30 @@ export default function CameraStage({
   onLandmarksUpdate,
 }) {
   const portrait = photoCount === 2
-  const overlayRef = useRef(null)
+  const canvasRef = useRef(null)
   const animFrameRef = useRef(null)
-  const latestLandmarksRef = useRef(null)
+  const latestLandmarksRef = useRef([])
+  const beautyCacheRef = useRef({})
 
-  // Face tracking loop
+  // Face tracking + beautified render loop
   useEffect(() => {
     if (!cameraOn || error) return undefined
 
     let isMounted = true
     let landmarker = null
-    let lastTime = -1
+    let lastDetect = -1
 
     getFaceLandmarker().then((lm) => {
       if (isMounted) landmarker = lm
     })
 
-    const tick = () => {
+    const tick = (now) => {
       if (!isMounted) return
 
       const video = webcamRef.current?.video
-      const canvas = overlayRef.current
+      const canvas = canvasRef.current
 
-      if (video && video.readyState >= 2 && canvas && landmarker) {
+      if (video && video.readyState >= 2 && canvas) {
         const vw = video.videoWidth
         const vh = video.videoHeight
         const cw = canvas.clientWidth
@@ -71,42 +75,63 @@ export default function CameraStage({
             canvas.height = ch
           }
 
-          const now = performance.now()
-          if (now - lastTime >= 30) {
-            lastTime = now
+          // Throttle face detection (~30-33fps) to save CPU/GPU
+          if (landmarker && now - lastDetect >= 33) {
+            lastDetect = now
             try {
               const res = landmarker.detectForVideo(video, now)
               const faces = res?.faceLandmarks || []
               latestLandmarksRef.current = faces
               onLandmarksUpdate?.(faces)
-
-              const ctx = canvas.getContext('2d')
-              if (ctx) {
-                ctx.clearRect(0, 0, cw, ch)
-
-                if (arFilterId && arFilterId !== 'none' && faces.length > 0) {
-                  const scale = Math.max(cw / vw, ch / vh)
-                  const dw = vw * scale
-                  const dh = vh * scale
-                  const dx = (cw - dw) / 2
-                  const dy = (ch - dh) / 2
-
-                  const toCanvas = (nx, ny) => ({
-                    x: dx + nx * dw,
-                    y: dy + ny * dh,
-                  })
-
-                  renderArFilter(ctx, faces, toCanvas, arFilterId)
-                }
-              }
             } catch {
-              // Video frame dropped or task busy, continue
+              // Frame dropped or task busy
+            }
+          }
+
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            // object-cover crop for the full video frame
+            const scale = Math.max(cw / vw, ch / vh)
+            const dw = vw * scale
+            const dh = vh * scale
+            const dx = (cw - dw) / 2
+            const dy = (ch - dh) / 2
+            const sw = cw / scale
+            const sh = ch / scale
+            const sx = (vw - sw) / 2
+            const sy = (vh - sh) / 2
+
+            const faces = latestLandmarksRef.current || []
+
+            // Draw beautified, mirrored selfie frame (flip raw video pixels + mirror landmark masks)
+            drawBeautified(
+              ctx,
+              video,
+              sx,
+              sy,
+              sw,
+              sh,
+              0,
+              0,
+              cw,
+              ch,
+              filter,
+              faces,
+              { flipSource: true, mirrorLandmarks: true, srcWFull: vw, srcHFull: vh },
+              beautyCacheRef.current,
+            )
+
+            // Render AR Face props on top of the mirrored image.
+            // Landmarks are in raw video space; image pixels are mirrored, so flip X in mapping.
+            if (arFilterId && arFilterId !== 'none' && faces.length > 0) {
+              const toCanvas = (nx, ny) => ({
+                x: dx + (1 - nx) * dw,
+                y: dy + ny * dh,
+              })
+              renderArFilter(ctx, faces, toCanvas, arFilterId)
             }
           }
         }
-      } else if (canvas) {
-        const ctx = canvas.getContext('2d')
-        ctx?.clearRect(0, 0, canvas.width, canvas.height)
       }
 
       animFrameRef.current = requestAnimationFrame(tick)
@@ -118,7 +143,7 @@ export default function CameraStage({
       isMounted = false
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
-  }, [cameraOn, error, arFilterId, webcamRef, onLandmarksUpdate])
+  }, [cameraOn, error, arFilterId, filter, webcamRef, onLandmarksUpdate])
 
   return (
     <div
@@ -160,10 +185,11 @@ export default function CameraStage({
         </div>
       ) : (
         <>
+          {/* Hidden video source (kept for face tracking and capture). Rendering happens on canvas. */}
           <Webcam
             ref={webcamRef}
             audio={false}
-            mirrored
+            mirrored={false}
             screenshotFormat="image/png"
             forceScreenshotSourceSize
             videoConstraints={{
@@ -173,15 +199,13 @@ export default function CameraStage({
               aspectRatio: { ideal: portrait ? 3 / 4 : 4 / 3 },
             }}
             onUserMediaError={(err) => onCameraError?.(describeCameraError(err))}
-            style={{ filter: filter?.cssFilter || 'none' }}
-            className="h-full w-full object-cover transition-[filter] duration-200"
+            className="pointer-events-none absolute h-0 w-0 opacity-0"
           />
 
-          {/* AR Face filter overlay canvas (mirrored identically to match the mirrored webcam video) */}
+          {/* Beautified + AR output canvas (mirrored selfie drawn in pixels) */}
           <canvas
-            ref={overlayRef}
-            style={{ transform: 'scaleX(-1)' }}
-            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            ref={canvasRef}
+            className="absolute inset-0 h-full w-full object-cover"
           />
 
           {/* Live indicator */}

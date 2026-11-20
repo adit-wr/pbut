@@ -97,18 +97,62 @@ export default function BoothPage() {
       if (cancelledRef.current) return
       setCountdown(null)
 
-      const dataUrl = webcamRef.current?.getScreenshot?.()
+      // Capture directly from the live video so we control the mirror orientation
+      // and get a true mirrored selfie (matching the preview) every time.
+      const video = webcamRef.current?.video
+      let dataUrl = ''
+      if (video && video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+        const shotCanvas = document.createElement('canvas')
+        shotCanvas.width = video.videoWidth
+        shotCanvas.height = video.videoHeight
+        const sctx = shotCanvas.getContext('2d')
+        if (sctx) {
+          sctx.translate(shotCanvas.width, 0)
+          sctx.scale(-1, 1)
+          sctx.drawImage(video, 0, 0, shotCanvas.width, shotCanvas.height)
+          dataUrl = shotCanvas.toDataURL('image/png')
+        }
+      }
+      if (!dataUrl) {
+        // Fallback: ensure we still produce a mirrored selfie image.
+        const raw = webcamRef.current?.getScreenshot?.() || ''
+        if (raw) {
+          try {
+            const img = await new Promise((resolve, reject) => {
+              const i = new Image()
+              i.onload = () => resolve(i)
+              i.onerror = reject
+              i.src = raw
+            })
+            const c = document.createElement('canvas')
+            c.width = img.naturalWidth || img.width
+            c.height = img.naturalHeight || img.height
+            const cx = c.getContext('2d')
+            if (cx) {
+              cx.translate(c.width, 0)
+              cx.scale(-1, 1)
+              cx.drawImage(img, 0, 0, c.width, c.height)
+              dataUrl = c.toDataURL('image/png')
+            } else {
+              dataUrl = raw
+            }
+          } catch {
+            dataUrl = raw
+          }
+        }
+      }
+
       if (!dataUrl) {
         setCaptureError('Could not capture a photo — the camera may not be ready yet.')
         setPhase('idle')
         return
       }
 
-      // Clone and flip landmarks horizontally (1 - x) to match mirrored screenshot
-      const rawFaces = latestLandmarksRef.current || []
-      const flippedLandmarks = rawFaces.map((face) =>
+      // Store landmarks in raw video space. The captured image above is a mirrored
+      // selfie, so rendering maps them with (1 - x) to align with the image.
+      const rawFaces = (latestLandmarksRef.current || []).map((face) =>
         face.map((pt) => ({
-          x: 1 - pt.x,
+          x: pt.x,
           y: pt.y,
           z: pt.z,
         })),
@@ -116,7 +160,7 @@ export default function BoothPage() {
 
       captured.push({
         dataUrl,
-        landmarks: flippedLandmarks,
+        landmarks: rawFaces,
       })
       setPhotos([...captured])
 

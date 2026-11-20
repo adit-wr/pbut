@@ -25,6 +25,7 @@
  */
 
 import { renderArFilter } from './renderArOverlay'
+import { drawBeautified } from './beautyPipeline'
 
 const SCALE = 3 // 3x the original layout (1800px wide) → a much sharper strip
 export const STRIP_WIDTH = 600 * SCALE
@@ -295,24 +296,53 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId) {
     ctx.fillStyle = theme.photoFallback
     ctx.fillRect(x, y, slotWidth, slotHeight)
 
-    // Apply photo filter only to the photo image, preserving frame & accents
-    ctx.filter = filter?.cssFilter || 'none'
-    drawCover(ctx, img, x, y, slotWidth, slotHeight)
+    // Apply beauty/color pipeline to the photo (level 3), preserving frame & accents.
+    // Photos are captured as mirrored selfies while landmarks remain in raw video
+    // space, so beauty masking mirrors X against the full image.
+    const iw = img.naturalWidth || img.width
+    const ih = img.naturalHeight || img.height
+    if (iw && ih) {
+      const coverScale = Math.max(slotWidth / iw, slotHeight / ih)
+      const sw = slotWidth / coverScale
+      const sh = slotHeight / coverScale
+      const sx = (iw - sw) / 2
+      const sy = (ih - sh) / 2
 
-    // Render AR Face props if present and landmarks exist
+      drawBeautified(
+        ctx,
+        img,
+        sx,
+        sy,
+        sw,
+        sh,
+        x,
+        y,
+        slotWidth,
+        slotHeight,
+        filter,
+        img._landmarks || [],
+        { flipSource: false, mirrorLandmarks: true, srcWFull: iw, srcHFull: ih },
+      )
+    } else {
+      ctx.filter = filter?.colorFilter || filter?.cssFilter || 'none'
+      drawCover(ctx, img, x, y, slotWidth, slotHeight)
+      ctx.filter = 'none'
+    }
+
+    // Render AR Face props if present and landmarks exist (renderArOverlay untouched)
     if (arFilterId && arFilterId !== 'none' && img._landmarks?.length) {
       ctx.filter = 'none'
-      const iw = img.naturalWidth || img.width
-      const ih = img.naturalHeight || img.height
       if (iw && ih) {
-        const scale = Math.max(slotWidth / iw, slotHeight / ih)
-        const dw = iw * scale
-        const dh = ih * scale
+        const arScale = Math.max(slotWidth / iw, slotHeight / ih)
+        const dw = iw * arScale
+        const dh = ih * arScale
         const dx = x + (slotWidth - dw) / 2
         const dy = y + (slotHeight - dh) / 2
 
+        // Captured screenshots are mirrored selfies; landmarks are in raw video
+        // space, so mirror x to align the overlay with the image.
         const toSlotCanvas = (nx, ny) => ({
-          x: dx + nx * dw,
+          x: dx + (1 - nx) * dw,
           y: dy + ny * dh,
         })
 
