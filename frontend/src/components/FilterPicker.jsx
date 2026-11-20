@@ -10,7 +10,6 @@ export default function FilterPicker({ value, onChange, disabled, darkMode = tru
         <p className={`text-xs font-semibold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
           Beauty Filter
         </p>
-        <span className={`text-[11px] ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Smooth · color · glow</span>
       </div>
       <div className="fade-right grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {FILTERS.map((filter) => {

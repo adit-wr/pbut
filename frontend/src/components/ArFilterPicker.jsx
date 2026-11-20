@@ -10,7 +10,6 @@ export default function ArFilterPicker({ value, onChange, disabled, darkMode = t
         <p className={`text-xs font-semibold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
           AR 3D Face Filter
         </p>
-        <span className="text-[11px] font-semibold text-amber-500">20 3D Props</span>
       </div>
       <div className="fade-right grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {AR_FILTERS.map((item) => {
