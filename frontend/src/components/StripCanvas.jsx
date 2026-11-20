@@ -13,6 +13,7 @@ export default function StripCanvas({
   theme,
   filter,
   arFilterId,
+  quality = 1,
   canvasRef,
   onDrawn,
   darkMode = true,
@@ -24,7 +25,7 @@ export default function StripCanvas({
     loadImages(photos)
       .then((images) => {
         if (stale || !canvasRef.current) return
-        drawPhotoStrip(canvasRef.current, images, theme, filter, arFilterId)
+        drawPhotoStrip(canvasRef.current, images, theme, filter, arFilterId, { quality })
         onDrawn?.(photos.length)
       })
       .catch((err) => {
@@ -34,7 +35,7 @@ export default function StripCanvas({
     return () => {
       stale = true
     }
-  }, [photos, theme, filter, arFilterId, canvasRef, onDrawn])
+  }, [photos, theme, filter, arFilterId, quality, canvasRef, onDrawn])
 
   if (photos.length === 0) {
     return (

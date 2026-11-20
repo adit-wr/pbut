@@ -44,6 +44,7 @@ export default function BoothPage() {
   const [camError, setCamError] = useState(null)
   const [captureError, setCaptureError] = useState(null)
   const [photoCount, setPhotoCount] = useState(PHOTO_COUNT) // 2 or 3
+  const [beautyQuality, setBeautyQuality] = useState(1) // reduced only when preview stutters; kept in sync with result
 
   const handleLandmarksUpdate = useCallback((faces) => {
     latestLandmarksRef.current = faces
@@ -359,6 +360,8 @@ export default function BoothPage() {
             photoCount={photoCount}
             filter={filter}
             arFilterId={arFilterId}
+            quality={beautyQuality}
+            onQualityChange={setBeautyQuality}
             onLandmarksUpdate={handleLandmarksUpdate}
           />
 
@@ -451,6 +454,7 @@ export default function BoothPage() {
               theme={theme}
               filter={filter}
               arFilterId={arFilterId}
+              quality={beautyQuality}
               canvasRef={canvasRef}
               onDrawn={handleStripDrawn}
               darkMode={darkMode}

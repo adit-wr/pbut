@@ -493,6 +493,9 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
   const _cache = cache || createCache()
   const w = Math.max(1, Math.round(dw))
   const h = Math.max(1, Math.round(dh))
+  const quality = Math.max(0.4, Math.min(1, options.quality ?? 1))
+  const pw = Math.max(1, Math.round(w * quality))
+  const ph = Math.max(1, Math.round(h * quality))
   const beauty = filter?.beauty || {}
   const effects = filter?.effects || {}
   const gradeCss = getGradeCss(filter)
@@ -504,8 +507,8 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
   const mirrorLandmarks =
     options.mirrorLandmarks != null ? !!options.mirrorLandmarks : !!options.mirrorX
 
-  // Work canvas at destination size
-  const work = ensureCanvas(_cache, 'work', w, h)
+  // Work canvas at processing size (downscaled when quality < 1 for performance)
+  const work = ensureCanvas(_cache, 'work', pw, ph)
   const wctx = work.getContext('2d')
   if (!wctx) {
     ctx.save()
@@ -521,19 +524,19 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
   }
 
   // 1) Base with color grading
-  wctx.clearRect(0, 0, w, h)
+  wctx.clearRect(0, 0, pw, ph)
   wctx.save()
   wctx.filter = gradeCss || 'none'
   if (flipSource) {
-    wctx.translate(w, 0)
+    wctx.translate(pw, 0)
     wctx.scale(-1, 1)
   }
-  wctx.drawImage(source, sx, sy, sw, sh, 0, 0, w, h)
+  wctx.drawImage(source, sx, sy, sw, sh, 0, 0, pw, ph)
   wctx.restore()
   wctx.filter = 'none'
 
   // Landmarks are normalized to the full source frame (0..1 over full width/height).
-  // sx,sy,sw,sh define the crop region in that full frame mapped to (0,0,w,h).
+  // sx,sy,sw,sh define the crop region in that full frame mapped to processing canvas.
   // mirrorLandmarks flips landmark X to align with mirrored image pixels.
   const fullW = options.srcWFull || (sx + sw) || sw
   const fullH = options.srcHFull || (sy + sh) || sh
@@ -544,8 +547,8 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     const lx = nx * fullW
     const ly = ny * fullH
     return {
-      x: ((lx - sx) / sw) * w,
-      y: ((ly - sy) / sh) * h,
+      x: ((lx - sx) / sw) * pw,
+      y: ((ly - sy) / sh) * ph,
     }
   }
 
@@ -554,21 +557,21 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
     faces?.length &&
     ((beauty.smooth ?? 0) > 0 || (beauty.whiten ?? 0) > 0)
   if (needMask) {
-    const featherPx = Math.max(3, 10 * (w / 720))
-    const maskAll = buildAllFaceMask(faces, toPointMapped, w, h, featherPx, _cache)
+    const featherPx = Math.max(2, 10 * (pw / 720))
+    const maskAll = buildAllFaceMask(faces, toPointMapped, pw, ph, featherPx, _cache)
 
     if ((beauty.smooth ?? 0) > 0) {
-      const baseCopy = ensureCanvas(_cache, 'baseCopy', w, h)
+      const baseCopy = ensureCanvas(_cache, 'baseCopy', pw, ph)
       const bctx = baseCopy.getContext('2d')
       if (bctx) {
-        bctx.clearRect(0, 0, w, h)
+        bctx.clearRect(0, 0, pw, ph)
         bctx.drawImage(work, 0, 0)
-        applySkinSmoothing(wctx, baseCopy, w, h, maskAll, beauty, _cache)
+        applySkinSmoothing(wctx, baseCopy, pw, ph, maskAll, beauty, _cache)
       }
     }
 
     if ((beauty.whiten ?? 0) > 0) {
-      applyFaceWhiten(wctx, w, h, maskAll, beauty, _cache)
+      applyFaceWhiten(wctx, pw, ph, maskAll, beauty, _cache)
     }
   }
 
@@ -584,47 +587,47 @@ export function drawBeautified(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh, filt
   const needSnap = (beauty.glow ?? 0) > 0 || (beauty.sharpen ?? 0) > 0
   let snap = null
   if (needSnap) {
-    snap = ensureCanvas(_cache, 'snap', w, h)
+    snap = ensureCanvas(_cache, 'snap', pw, ph)
     const sc = snap.getContext('2d')
     if (sc) {
-      sc.clearRect(0, 0, w, h)
+      sc.clearRect(0, 0, pw, ph)
       sc.drawImage(work, 0, 0)
     }
   }
 
   // 4) Glow / soft focus
   if ((beauty.glow ?? 0) > 0 && snap) {
-    applyGlow(wctx, snap, w, h, beauty, _cache)
+    applyGlow(wctx, snap, pw, ph, beauty, _cache)
   }
 
   // 5) Sharpen
   if ((beauty.sharpen ?? 0) > 0 && snap) {
-    const snap2 = ensureCanvas(_cache, 'snap2', w, h)
+    const snap2 = ensureCanvas(_cache, 'snap2', pw, ph)
     const sc2 = snap2.getContext('2d')
     if (sc2) {
-      sc2.clearRect(0, 0, w, h)
+      sc2.clearRect(0, 0, pw, ph)
       sc2.drawImage(work, 0, 0)
-      applySharpen(wctx, snap2, w, h, beauty.sharpen, _cache)
+      applySharpen(wctx, snap2, pw, ph, beauty.sharpen, _cache)
     }
   }
 
   // 6) Tint overlay
   if (effects.tint) {
-    applyTint(wctx, w, h, effects.tint)
+    applyTint(wctx, pw, ph, effects.tint)
   }
 
   // 7) Vignette
   if ((effects.vignette ?? 0) > 0) {
-    applyVignette(wctx, w, h, effects.vignette)
+    applyVignette(wctx, pw, ph, effects.vignette)
   }
 
   // 8) Grain
   if ((effects.grain ?? 0) > 0) {
-    applyGrain(wctx, w, h, effects.grain)
+    applyGrain(wctx, pw, ph, effects.grain)
   }
 
-  // Output to destination
-  ctx.drawImage(work, 0, 0, w, h, dx, dy, dw, dh)
+  // Output to destination (upscale when processed at lower quality)
+  ctx.drawImage(work, 0, 0, pw, ph, dx, dy, dw, dh)
 }
 
 /**

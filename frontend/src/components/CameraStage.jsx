@@ -24,6 +24,9 @@ function describeCameraError(err) {
  * Live camera stage with countdown overlay, level-3 beauty pipeline, and AR face tracking.
  * Renders the video through a beautified canvas (mirrored selfie) and draws AR props on top.
  * renderArOverlay.js is used as-is.
+ *
+ * Performance: starts at full quality. If preview stutters/freezes, quality is reduced
+ * adaptively and reported via onQualityChange so preview and final strip stay in sync.
  */
 export default function CameraStage({
   webcamRef,
@@ -37,6 +40,8 @@ export default function CameraStage({
   photoCount = 3,
   filter,
   arFilterId = 'none',
+  quality = 1,
+  onQualityChange,
   onLandmarksUpdate,
 }) {
   const portrait = photoCount === 2
@@ -44,6 +49,17 @@ export default function CameraStage({
   const animFrameRef = useRef(null)
   const latestLandmarksRef = useRef([])
   const beautyCacheRef = useRef({})
+  const qualityRef = useRef(quality)
+  const perfRef = useRef({ lastFrame: 0, slow: 0, fast: 0 })
+
+  useEffect(() => {
+    qualityRef.current = quality
+  }, [quality])
+
+  useEffect(() => {
+    // Reset performance state when camera (re)starts; keep quality as-is (parent controls initial)
+    perfRef.current = { lastFrame: 0, slow: 0, fast: 0 }
+  }, [cameraOn])
 
   // Face tracking + beautified render loop
   useEffect(() => {
@@ -69,14 +85,47 @@ export default function CameraStage({
         const cw = canvas.clientWidth
         const ch = canvas.clientHeight
 
+        // Adaptive quality: only reduce when preview stutters/freezes, not at start
+        const perf = perfRef.current
+        if (perf.lastFrame) {
+          const dt = now - perf.lastFrame
+          if (qualityRef.current >= 1) {
+            if (dt > 170) {
+              perf.slow += 1
+            } else {
+              perf.slow = 0
+            }
+            if (perf.slow >= 4) {
+              perf.slow = 0
+              perf.fast = 0
+              qualityRef.current = 0.55
+              onQualityChange?.(0.55)
+            }
+          } else if (dt < 60) {
+            perf.fast += 1
+            if (perf.fast >= 90) {
+              perf.fast = 0
+              perf.slow = 0
+              qualityRef.current = 1
+              onQualityChange?.(1)
+            }
+          } else {
+            perf.fast = 0
+          }
+        }
+        perf.lastFrame = now
+
         if (vw && vh && cw && ch) {
           if (canvas.width !== cw || canvas.height !== ch) {
             canvas.width = cw
             canvas.height = ch
           }
 
-          // Throttle face detection (~30-33fps) to save CPU/GPU
-          if (landmarker && now - lastDetect >= 33) {
+          const q = qualityRef.current
+          const detectInterval = q < 1 ? 90 : 33
+
+          // Throttle face detection (slower in reduced-quality mode) to save CPU/GPU
+          if (landmarker && now - lastDetect >= detectInterval) {
             lastDetect = now
             try {
               const res = landmarker.detectForVideo(video, now)
@@ -117,7 +166,7 @@ export default function CameraStage({
               ch,
               filter,
               faces,
-              { flipSource: true, mirrorLandmarks: true, srcWFull: vw, srcHFull: vh },
+              { flipSource: true, mirrorLandmarks: true, srcWFull: vw, srcHFull: vh, quality: q },
               beautyCacheRef.current,
             )
 
@@ -143,7 +192,7 @@ export default function CameraStage({
       isMounted = false
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
-  }, [cameraOn, error, arFilterId, filter, webcamRef, onLandmarksUpdate])
+  }, [cameraOn, error, arFilterId, filter, webcamRef, onLandmarksUpdate, onQualityChange])
 
   return (
     <div

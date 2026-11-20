@@ -248,11 +248,13 @@ function drawCover(ctx, img, x, y, w, h) {
 /**
  * Renders the full photo strip onto `canvas`.
  * Re-runs whenever the photos, the selected theme, the selected filter, or AR filter change.
+ * `options.quality` (0.4..1) scales internal beauty processing to keep preview/result in sync.
  */
-export function drawPhotoStrip(canvas, images, theme, filter, arFilterId) {
+export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, options = {}) {
   if (!canvas || !images?.length) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
+  const quality = options.quality ?? 1
 
   const width = STRIP_WIDTH
   const height = getStripHeight()
@@ -321,7 +323,7 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId) {
         slotHeight,
         filter,
         img._landmarks || [],
-        { flipSource: false, mirrorLandmarks: true, srcWFull: iw, srcHFull: ih },
+        { flipSource: false, mirrorLandmarks: true, srcWFull: iw, srcHFull: ih, quality },
       )
     } else {
       ctx.filter = filter?.colorFilter || filter?.cssFilter || 'none'
