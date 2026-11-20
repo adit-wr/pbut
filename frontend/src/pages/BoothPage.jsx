@@ -4,11 +4,11 @@ import CameraPanel from '../components/CameraPanel.jsx'
 import Pickers from '../components/Pickers.jsx'
 import StripPanel from '../components/StripPanel.jsx'
 import OutputPanel from '../components/OutputPanel.jsx'
-import { t } from '../lib/i18n.js'
+import { s } from '../strings.js'
 
 export default function BoothPage() {
   const booth = usePhotobooth()
-  const { flash, darkMode, lang, styles } = booth
+  const { flash, darkMode, styles } = booth
   const { line, muted, label, accent } = styles
 
   return (
@@ -36,12 +36,12 @@ export default function BoothPage() {
         </span>
       </div>
 
-      <div className="mx-auto w-full max-w-[1180px] px-5 pb-16 sm:px-8">
-        <div
-          className={`mt-4 flex items-center justify-between border-b pb-2 sm:mt-6 ${
-            darkMode ? 'border-neutral-900' : 'border-neutral-100'
-          }`}
-        >
+      <div
+        className={`sticky top-0 z-40 border-b ${
+          darkMode ? 'border-neutral-900 bg-neutral-950' : 'border-neutral-100 bg-white'
+        }`}
+      >
+        <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between px-5 py-2 sm:px-8">
           <p className={`${label} ${muted}`}>
             PHOTOBU<span className={accent}>®</span>
           </p>
@@ -49,14 +49,16 @@ export default function BoothPage() {
             PHOTO / BOOTH — 2026
           </p>
         </div>
+      </div>
 
+      <div className="mx-auto w-full max-w-[1180px] px-5 pb-16 pt-4 sm:px-8 sm:pt-6">
         <Masthead booth={booth} />
 
         <div
           className={`py-4 text-center font-mono text-[8px] font-medium uppercase leading-none tracking-[0.24em] sm:py-5 sm:text-[9px] ${muted}`}
         >
-          02 — {t(lang, 'section.camera')} / 03 — {t(lang, 'section.face')} / 04 —{' '}
-          {t(lang, 'section.finish')} / 05 — {t(lang, 'section.frame')}
+          02 — {s('section.camera')} / 03 — {s('section.face')} / 04 —{' '}
+          {s('section.finish')} / 05 — {s('section.frame')}
         </div>
 
         <main className="grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-12">
@@ -68,7 +70,7 @@ export default function BoothPage() {
 
         <footer className={`mt-16 flex items-center justify-between gap-4 border-t pt-4 ${line}`}>
           <p className={`${label} ${muted}`}>Photobu</p>
-          <p className={`${label} ${muted}`}>{t(lang, 'footer.right')}</p>
+          <p className={`${label} ${muted}`}>{s('footer.right')}</p>
         </footer>
       </div>
     </div>

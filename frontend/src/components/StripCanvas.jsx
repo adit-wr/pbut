@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { drawPhotoStrip, getStripHeight, loadImages, STRIP_WIDTH } from '../lib/stripCanvas'
-import { t } from '../lib/i18n'
+import { s } from '../strings.js'
 
 export default function StripCanvas({
   photos,
@@ -11,7 +11,6 @@ export default function StripCanvas({
   canvasRef,
   onDrawn,
   darkMode = true,
-  lang = 'en',
 }) {
   useEffect(() => {
     if (photos.length === 0) return undefined
@@ -54,13 +53,13 @@ export default function StripCanvas({
               darkMode ? 'text-pink-300' : 'text-pink-600'
             }`}
           >
-            {t(lang, 'strip.placeholderTitle')}
+            {s('strip.placeholderTitle')}
           </p>
           <p className={`mt-3 text-[13px] font-medium ${darkMode ? 'text-neutral-50' : 'text-neutral-950'}`}>
-            {t(lang, 'strip.placeholder')}
+            {s('strip.placeholder')}
           </p>
           <p className="mt-1 text-[11px] leading-relaxed text-neutral-500">
-            {t(lang, 'strip.placeholderHint')}
+            {s('strip.placeholderHint')}
           </p>
         </div>
       </div>
@@ -72,7 +71,7 @@ export default function StripCanvas({
       ref={canvasRef}
       width={STRIP_WIDTH}
       height={getStripHeight()}
-      aria-label={t(lang, 'strip.aria')}
+      aria-label={s('strip.aria')}
       className={`h-auto w-full border ${darkMode ? 'border-neutral-800' : 'border-neutral-200'}`}
     />
   )

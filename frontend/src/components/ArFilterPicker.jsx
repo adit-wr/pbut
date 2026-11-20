@@ -1,8 +1,8 @@
 import { AR_FILTERS } from '../lib/arFilters'
-import { t } from '../lib/i18n'
+import { s } from '../strings.js'
 import FilterRail from './FilterRail.jsx'
 
-export default function ArFilterPicker({ value, onChange, disabled, darkMode = true, lang = 'en' }) {
+export default function ArFilterPicker({ value, onChange, disabled, darkMode = true }) {
   return (
     <FilterRail
       items={AR_FILTERS}
@@ -10,8 +10,8 @@ export default function ArFilterPicker({ value, onChange, disabled, darkMode = t
       onChange={onChange}
       disabled={disabled}
       darkMode={darkMode}
-      ariaLabel={t(lang, 'picker.arAria')}
-      label={t(lang, 'picker.arLabel')}
+      ariaLabel={s('picker.arAria')}
+      label={s('picker.arLabel')}
       getTitle={(item) => item.description}
     />
   )

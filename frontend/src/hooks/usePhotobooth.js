@@ -4,13 +4,7 @@ import { DEFAULT_AR_FILTER } from '../lib/arFilters.js'
 import { DEFAULT_FILTER, FILTERS } from '../lib/filters.js'
 import { PHOTO_COUNT } from '../lib/stripCanvas.js'
 import { DEFAULT_THEME, THEMES } from '../lib/themes.js'
-import {
-  readStoredDark,
-  readStoredLang,
-  storeDark,
-  storeLang,
-  t,
-} from '../lib/i18n.js'
+import { s } from '../strings.js'
 import { COUNTDOWN_SECONDS, FLASH_MS, SAVE_IDLE, SHOT_DELAY_MS, sleep } from '../config.js'
 import { getStyles } from '../ui.js'
 
@@ -33,8 +27,7 @@ export default function usePhotobooth() {
   const [themeId, setThemeId] = useState(DEFAULT_THEME.id)
   const [filterId, setFilterId] = useState(DEFAULT_FILTER.id)
   const [arFilterId, setArFilterId] = useState(DEFAULT_AR_FILTER.id)
-  const [darkMode, setDarkMode] = useState(readStoredDark)
-  const [lang, setLang] = useState(readStoredLang)
+  const [darkMode, setDarkMode] = useState(true)
   const [save, setSave] = useState(SAVE_IDLE)
   const [camError, setCamError] = useState(null)
   const [captureError, setCaptureError] = useState(null)
@@ -50,16 +43,13 @@ export default function usePhotobooth() {
       ? 'bg-neutral-950 text-neutral-50 antialiased'
       : 'bg-white text-neutral-950 antialiased'
     document.documentElement.classList.toggle('dark', darkMode)
-    storeDark(darkMode)
   }, [darkMode])
 
   useEffect(() => {
-    document.documentElement.lang = lang
-    document.title = t(lang, 'meta.title')
+    document.title = s('meta.title')
     const meta = document.querySelector('meta[name="description"]')
-    if (meta) meta.setAttribute('content', t(lang, 'meta.desc'))
-    storeLang(lang)
-  }, [lang])
+    if (meta) meta.setAttribute('content', s('meta.desc'))
+  }, [])
 
   const theme = THEMES.find((item) => item.id === themeId) ?? DEFAULT_THEME
   const filter = FILTERS.find((item) => item.id === filterId) ?? DEFAULT_FILTER
@@ -143,7 +133,7 @@ export default function usePhotobooth() {
       }
 
       if (!dataUrl) {
-        setCaptureError(t(lang, 'capture.error'))
+        setCaptureError(s('capture.error'))
         setPhase('idle')
         return
       }
@@ -164,7 +154,7 @@ export default function usePhotobooth() {
 
     if (cancelledRef.current) return
     setPhase('reviewing')
-  }, [photoCount, lang])
+  }, [photoCount])
 
   const handleToggleCamera = useCallback(() => {
     if (cameraLocked) return
@@ -195,19 +185,19 @@ export default function usePhotobooth() {
     const isCurrent = () => sessionRef.current === session
 
     ;(async () => {
-      if (isCurrent()) setSave({ status: 'sending', message: t(lang, 'save.sending') })
+      if (isCurrent()) setSave({ status: 'sending', message: s('save.sending') })
       try {
         const blob = await canvasToImageBlob(canvas)
         const caption = `Photobu photo strip · ${new Date().toLocaleString()}`
         await processPhoto(blob, `photobu-${session}.jpg`, caption)
-        if (isCurrent()) setSave({ status: 'success', message: t(lang, 'save.success') })
+        if (isCurrent()) setSave({ status: 'success', message: s('save.success') })
       } catch (err) {
         if (isCurrent()) setSave({ status: 'error', message: err.message })
       }
     })()
 
     return undefined
-  }, [drawnCount, photos, uploadTick, photoCount, lang])
+  }, [drawnCount, photos, uploadTick, photoCount])
 
   const handleRetryUpload = useCallback(() => {
     uploadedSessionRef.current = null
@@ -251,7 +241,6 @@ export default function usePhotobooth() {
     filterId,
     arFilterId,
     darkMode,
-    lang,
     save,
     camError,
     captureError,
@@ -270,7 +259,6 @@ export default function usePhotobooth() {
     setFilterId,
     setArFilterId,
     setDarkMode,
-    setLang,
     setBeautyQuality,
     handleLandmarksUpdate,
     handleStart,

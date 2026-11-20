@@ -5,25 +5,25 @@ import { drawBeautified } from '../lib/beautyPipeline'
 import { getSlotAspect } from '../lib/stripCanvas'
 import { DEFAULT_FILTER } from '../lib/filters'
 import { DEFAULT_AR_FILTER } from '../lib/arFilters'
-import { t } from '../lib/i18n'
+import { s } from '../strings.js'
 
 const isMobileDevice =
   typeof navigator !== 'undefined' &&
   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 
-function describeCameraError(err, lang = 'en') {
+function describeCameraError(err) {
   const name = err?.name || String(err)
   switch (name) {
     case 'NotAllowedError':
     case 'PermissionDeniedError':
-      return t(lang, 'cam.denied')
+      return s('cam.denied')
     case 'NotFoundError':
     case 'DevicesNotFoundError':
-      return t(lang, 'cam.notFound')
+      return s('cam.notFound')
     case 'NotReadableError':
-      return t(lang, 'cam.busy')
+      return s('cam.busy')
     default:
-      return t(lang, 'cam.unknown', { name })
+      return s('cam.unknown', { name })
   }
 }
 
@@ -44,7 +44,6 @@ export default function CameraStage({
   onQualityChange,
   onLandmarksUpdate,
   photos = [],
-  lang = 'en',
 }) {
   const portrait = photoCount === 2
   const slotAspect = getSlotAspect(photoCount)
@@ -246,10 +245,10 @@ export default function CameraStage({
         <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
           <div>
             <p className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-pink-300">
-              {t(lang, 'stage.off')}
+              {s('stage.off')}
             </p>
             <p className="mt-2 text-[13px] leading-relaxed text-neutral-400">
-              {t(lang, 'stage.offHint')}
+              {s('stage.offHint')}
             </p>
           </div>
           <button
@@ -258,14 +257,14 @@ export default function CameraStage({
             disabled={cameraToggleDisabled}
             className="min-h-11 border border-white bg-white px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-40 md:cursor-pointer"
           >
-            {t(lang, 'stage.turnOn')}
+            {s('stage.turnOn')}
           </button>
         </div>
       ) : error ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
           <div>
             <p className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-pink-300">
-              {t(lang, 'stage.unavailable')}
+              {s('stage.unavailable')}
             </p>
             <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-neutral-400">{error}</p>
           </div>
@@ -274,7 +273,7 @@ export default function CameraStage({
             onClick={onRetry}
             className="min-h-11 border border-white bg-white px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-neutral-200 md:cursor-pointer"
           >
-            {t(lang, 'stage.retry')}
+            {s('stage.retry')}
           </button>
         </div>
       ) : (
@@ -292,14 +291,14 @@ export default function CameraStage({
               height: { ideal: isMobileDevice ? 960 : 1920 },
               aspectRatio: { ideal: slotAspect },
             }}
-            onUserMediaError={(err) => onCameraError?.(describeCameraError(err, lang))}
+            onUserMediaError={(err) => onCameraError?.(describeCameraError(err))}
             className="pointer-events-none absolute h-0 w-0 opacity-0"
           />
 
           <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
 
           <div className="absolute left-3 top-3 flex items-center gap-2 border border-white/20 bg-black/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-            <span className="size-1.5 animate-pulse bg-pink-300" /> {t(lang, 'stage.live')}
+            <span className="size-1.5 animate-pulse bg-pink-300" /> {s('stage.live')}
           </div>
 
           {countdown !== null && (
@@ -315,14 +314,14 @@ export default function CameraStage({
 
           {busy && countdown === null && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 border border-white/20 bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-              {t(lang, 'stage.processing')}
+              {s('stage.processing')}
             </div>
           )}
 
           {photos.length > 0 && (
             <div
               className="pointer-events-none absolute bottom-3 left-3 z-20 flex gap-1.5"
-              aria-label={t(lang, 'stage.thumbs', { count: photos.length })}
+              aria-label={s('stage.thumbs', { count: photos.length })}
             >
               {photos.map((photo, index) => (
                 <div
@@ -332,7 +331,7 @@ export default function CameraStage({
                 >
                   <img
                     src={photo.dataUrl}
-                    alt={t(lang, 'stage.thumbAlt', { n: index + 1 })}
+                    alt={s('stage.thumbAlt', { n: index + 1 })}
                     className="h-full w-full object-cover"
                   />
                   <span className="absolute bottom-0 right-0 bg-black/75 px-1 font-mono text-[8px] font-bold leading-none tabular-nums text-white">

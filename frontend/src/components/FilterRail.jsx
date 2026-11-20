@@ -20,8 +20,8 @@ export default function FilterRail({
 
   const handleScroll = (event) => {
     const el = event.currentTarget
-    const max = el.scrollWidth - el.clientWidth
-    setScrollRatio(max > 0 ? el.scrollLeft / max : 0)
+    const max = el.scrollHeight - el.clientHeight
+    setScrollRatio(max > 0 ? el.scrollTop / max : 0)
   }
 
   return (
@@ -41,11 +41,11 @@ export default function FilterRail({
         </div>
       </div>
 
-      <div className="fade-right">
+      <div className="fade-bottom">
         <div
           ref={railRef}
           onScroll={handleScroll}
-          className="grid grid-rows-4 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1"
+          className="grid max-h-48 grid-cols-3 gap-1.5 overflow-y-auto pr-1 no-scrollbar sm:max-h-56"
         >
           {items.map((item) => {
             const active = item.id === value

@@ -1,4 +1,4 @@
-import { getLang, t } from './i18n'
+import { s } from '../strings.js'
 
 const configuredBase = import.meta.env.VITE_API_BASE || ''
 const isRemoteBase =
@@ -14,9 +14,9 @@ async function request(path, options = {}) {
 
     console.error('API request failed:', err)
     const hint = import.meta.env.DEV
-      ? t(getLang(), 'api.devHint')
-      : t(getLang(), 'api.prodHint')
-    throw new Error(t(getLang(), 'api.cannotReach', { hint }))
+      ? s('api.devHint')
+      : s('api.prodHint')
+    throw new Error(s('api.cannotReach', { hint }))
   }
 
   let data = null
@@ -27,7 +27,7 @@ async function request(path, options = {}) {
   }
 
   if (!res.ok) {
-    const message = data?.message || data?.error || t(getLang(), 'api.requestFailed', { status: res.status })
+    const message = data?.message || data?.error || s('api.requestFailed', { status: res.status })
     const error = new Error(message)
     error.status = res.status
     throw error
@@ -50,7 +50,7 @@ export async function canvasToImageBlob(
   const encode = (c, q) =>
     new Promise((resolve, reject) => {
       c.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error(t(getLang(), 'api.exportFailed')))),
+        (blob) => (blob ? resolve(blob) : reject(new Error(s('api.exportFailed')))),
         type,
         q,
       )

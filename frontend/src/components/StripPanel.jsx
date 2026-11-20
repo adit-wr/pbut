@@ -1,5 +1,5 @@
 import StripCanvas from './StripCanvas.jsx'
-import { t } from '../lib/i18n.js'
+import { s } from '../strings.js'
 
 export default function StripPanel({ booth }) {
   const {
@@ -9,7 +9,6 @@ export default function StripPanel({ booth }) {
     arFilterId,
     canvasRef,
     handleStripDrawn,
-    lang,
     styles,
   } = booth
   const { line, muted, label, accent, darkMode } = styles
@@ -17,7 +16,7 @@ export default function StripPanel({ booth }) {
   return (
     <section className="min-w-0 lg:col-span-5 lg:col-start-5 lg:row-start-4">
       <p className={`${label} ${muted} mb-4 border-t pt-4 ${line}`}>
-        <span className={`${accent} mr-2`}>06</span>{t(lang, 'section.strip')}
+        <span className={`${accent} mr-2`}>06</span>{s('section.strip')}
       </p>
       <div className="w-full lg:max-w-[340px]">
         <StripCanvas
@@ -29,7 +28,6 @@ export default function StripPanel({ booth }) {
           canvasRef={canvasRef}
           onDrawn={handleStripDrawn}
           darkMode={darkMode}
-          lang={lang}
         />
       </div>
     </section>

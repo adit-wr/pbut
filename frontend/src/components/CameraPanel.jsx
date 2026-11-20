@@ -1,6 +1,6 @@
 import CameraStage from './CameraStage.jsx'
 import CameraIcon from './CameraIcon.jsx'
-import { t } from '../lib/i18n.js'
+import { s } from '../strings.js'
 import { COUNTDOWN_SECONDS } from '../config.js'
 
 export default function CameraPanel({ booth }) {
@@ -25,7 +25,6 @@ export default function CameraPanel({ booth }) {
     handleStart,
     startDisabled,
     setCamError,
-    lang,
     styles,
   } = booth
   const { line, muted, label, accent, accentFill, darkMode } = styles
@@ -35,10 +34,10 @@ export default function CameraPanel({ booth }) {
       <div className={`border-t pt-4 lg:col-span-7 lg:row-start-1 ${line}`}>
         <div className="flex items-baseline justify-between">
           <p className={`${label} ${muted}`}>
-            <span className={`${accent} mr-2`}>02</span>{t(lang, 'section.camera')}
+            <span className={`${accent} mr-2`}>02</span>{s('section.camera')}
           </p>
           <p className={`font-mono text-[10px] tabular-nums ${muted}`}>
-            {t(lang, 'camera.meta', { count: photoCount, seconds: COUNTDOWN_SECONDS })}
+            {s('camera.meta', { count: photoCount, seconds: COUNTDOWN_SECONDS })}
           </p>
         </div>
       </div>
@@ -64,7 +63,6 @@ export default function CameraPanel({ booth }) {
           onQualityChange={setBeautyQuality}
           onLandmarksUpdate={handleLandmarksUpdate}
           photos={photos}
-          lang={lang}
         />
 
         {captureError && (
@@ -86,17 +84,17 @@ export default function CameraPanel({ booth }) {
             disabled={startDisabled}
             aria-label={
               phase === 'counting'
-                ? t(lang, 'camera.ready', { n: countdown ?? '' }).trim()
+                ? s('camera.ready', { n: countdown ?? '' }).trim()
                 : reviewing
-                  ? t(lang, 'camera.takeAgain')
-                  : t(lang, 'camera.start')
+                  ? s('camera.takeAgain')
+                  : s('camera.start')
             }
             title={
               phase === 'counting'
-                ? t(lang, 'camera.ready', { n: countdown ?? '' }).trim()
+                ? s('camera.ready', { n: countdown ?? '' }).trim()
                 : reviewing
-                  ? t(lang, 'camera.takeAgain')
-                  : t(lang, 'camera.start')
+                  ? s('camera.takeAgain')
+                  : s('camera.start')
             }
             className={`relative grid h-14 w-full place-items-center px-6 transition disabled:cursor-not-allowed disabled:opacity-30 sm:w-auto sm:shrink-0 md:cursor-pointer ${accentFill}`}
           >
@@ -107,7 +105,7 @@ export default function CameraPanel({ booth }) {
             ) : (
               <span className="flex items-center gap-2">
                 <span className="text-[11px] font-semibold uppercase leading-none tracking-[0.22em]">
-                  {t(lang, 'camera.capture')}
+                  {s('camera.capture')}
                 </span>
                 <CameraIcon className="size-6" />
               </span>
@@ -123,7 +121,7 @@ export default function CameraPanel({ booth }) {
                 disabled={cameraLocked}
                 role="switch"
                 aria-checked={cameraOn}
-                aria-label={t(lang, 'camera.toggle')}
+                aria-label={s('camera.toggle')}
                 className={`relative h-7 w-12 shrink-0 border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 disabled:cursor-not-allowed disabled:opacity-40 md:cursor-pointer ${
                   cameraOn
                     ? 'border-pink-300 bg-pink-300'
@@ -145,18 +143,18 @@ export default function CameraPanel({ booth }) {
                   cameraOn ? accent : muted
                 }`}
               >
-                {cameraOn ? t(lang, 'camera.stateOn') : t(lang, 'camera.stateOff')}
+                {cameraOn ? s('camera.stateOn') : s('camera.stateOff')}
               </span>
             </div>
             <p className={`text-[11px] leading-snug ${muted}`}>
               {!cameraOn
-                ? t(lang, 'camera.turnOn')
+                ? s('camera.turnOn')
                 : phase === 'counting'
-                  ? t(lang, 'camera.counting', {
+                  ? s('camera.counting', {
                       count: photoCount,
                       seconds: COUNTDOWN_SECONDS,
                     })
-                  : t(lang, 'camera.idle', {
+                  : s('camera.idle', {
                       count: photoCount,
                       seconds: COUNTDOWN_SECONDS,
                     })}

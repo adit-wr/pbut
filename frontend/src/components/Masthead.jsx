@@ -1,7 +1,7 @@
-import { t } from '../lib/i18n.js'
+import { s } from '../strings.js'
 
 export default function Masthead({ booth }) {
-  const { lang, setLang, darkMode, setDarkMode, photoCount, setPhotoCount, phase, styles } = booth
+  const { darkMode, setDarkMode, photoCount, setPhotoCount, phase, styles } = booth
   const { line, muted, label, accent, control, controlOn, controlOff } = styles
 
   const toggleClass = (active) =>
@@ -18,7 +18,7 @@ export default function Masthead({ booth }) {
       className={`grid gap-8 border-b pt-4 pb-7 sm:pt-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-end ${line}`}
     >
       <div>
-        <p className={`${label} ${accent}`}>{t(lang, 'app.eyebrow')}</p>
+        <p className={`${label} ${accent}`}>{s('app.eyebrow')}</p>
         <h1 className="mt-3 text-[clamp(3.25rem,10vw,6rem)] font-black leading-[0.82] tracking-[-0.06em]">
           PHOTOBU
         </h1>
@@ -28,12 +28,12 @@ export default function Masthead({ booth }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:gap-x-10 md:justify-items-end">
+      <div className="grid grid-cols-2 gap-x-10 gap-y-5 md:justify-items-end">
         <div>
-          <p className={`${label} ${muted}`}>{t(lang, 'header.frames')}</p>
+          <p className={`${label} ${muted}`}>{s('header.frames')}</p>
           <div
             role="group"
-            aria-label={t(lang, 'header.framesAria')}
+            aria-label={s('header.framesAria')}
             className={`mt-2 flex w-fit divide-x border ${line} ${
               darkMode ? 'divide-neutral-800' : 'divide-neutral-200'
             }`}
@@ -59,15 +59,15 @@ export default function Masthead({ booth }) {
           <p className={`${label} ${muted}`}>Mode</p>
           <div
             role="group"
-            aria-label={t(lang, 'header.modeAria')}
+            aria-label={s('header.modeAria')}
             className="mt-3 flex items-center gap-2 sm:gap-3"
           >
             <button
               type="button"
               onClick={() => setDarkMode(false)}
               aria-pressed={!darkMode}
-              aria-label={t(lang, 'header.light')}
-              title={t(lang, 'header.light')}
+              aria-label={s('header.light')}
+              title={s('header.light')}
               className={toggleClass(!darkMode)}
             >
               <span className="animate-ring-spin pointer-events-none absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#f9a8d4,#ec4899,#fbcfe8,#f9a8d4)]" />
@@ -92,8 +92,8 @@ export default function Masthead({ booth }) {
               type="button"
               onClick={() => setDarkMode(true)}
               aria-pressed={darkMode}
-              aria-label={t(lang, 'header.dark')}
-              title={t(lang, 'header.dark')}
+              aria-label={s('header.dark')}
+              title={s('header.dark')}
               className={toggleClass(darkMode)}
             >
               <span className="animate-ring-spin pointer-events-none absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#fbcfe8,#db2777,#f9a8d4,#fbcfe8)]" />
@@ -115,30 +115,6 @@ export default function Masthead({ booth }) {
           </div>
         </div>
 
-        <div>
-          <p className={`${label} ${muted}`}>{t(lang, 'header.language')}</p>
-          <div
-            role="group"
-            aria-label={t(lang, 'header.language')}
-            className={`mt-2 flex w-fit divide-x border ${line} ${
-              darkMode ? 'divide-neutral-800' : 'divide-neutral-200'
-            }`}
-          >
-            {['en', 'id'].map((code) => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setLang(code)}
-                aria-pressed={lang === code}
-                className={`${control} w-10 sm:w-11 md:cursor-pointer ${
-                  lang === code ? controlOn : controlOff
-                }`}
-              >
-                {code.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </header>
   )

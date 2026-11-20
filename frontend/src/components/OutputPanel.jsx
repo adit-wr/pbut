@@ -1,10 +1,9 @@
-import { t } from '../lib/i18n.js'
+import { s } from '../strings.js'
 
 export default function OutputPanel({ booth }) {
   const {
     save,
     darkMode,
-    lang,
     styles,
     handleRetryUpload,
     handleDownload,
@@ -28,7 +27,7 @@ export default function OutputPanel({ booth }) {
   return (
     <section className="min-w-0 lg:col-span-3 lg:col-start-10 lg:row-start-4">
       <p className={`${label} ${muted} mb-4 border-t pt-4 ${line}`}>
-        <span className={`${accent} mr-2`}>07</span>{t(lang, 'section.output')}
+        <span className={`${accent} mr-2`}>07</span>{s('section.output')}
       </p>
 
       {save.status !== 'idle' && (
@@ -45,7 +44,7 @@ export default function OutputPanel({ booth }) {
               onClick={handleRetryUpload}
               className="shrink-0 self-start font-semibold uppercase tracking-[0.14em] underline underline-offset-4 md:cursor-pointer"
             >
-              {t(lang, 'output.retry')}
+              {s('output.retry')}
             </button>
           )}
         </div>
@@ -58,12 +57,12 @@ export default function OutputPanel({ booth }) {
           disabled={!processed}
           title={
             processed
-              ? t(lang, 'output.downloadTitle')
-              : t(lang, 'output.downloadLockedTitle')
+              ? s('output.downloadTitle')
+              : s('output.downloadLockedTitle')
           }
           className={`h-14 text-[11px] font-semibold uppercase leading-none tracking-[0.22em] transition disabled:cursor-not-allowed disabled:opacity-25 md:cursor-pointer ${accentFill}`}
         >
-          {t(lang, 'output.download')}
+          {s('output.download')}
         </button>
         <button
           type="button"
@@ -71,13 +70,13 @@ export default function OutputPanel({ booth }) {
           disabled={!reviewing}
           className={`h-14 border text-[11px] font-semibold uppercase leading-none tracking-[0.22em] transition disabled:cursor-not-allowed disabled:opacity-25 md:cursor-pointer ${line} ${muted} hover:text-neutral-950 dark:hover:text-neutral-50`}
         >
-          {t(lang, 'output.newStrip')}
+          {s('output.newStrip')}
         </button>
       </div>
 
       {reviewing && !processed && (
         <p className={`mt-3 text-[11px] leading-relaxed ${muted}`}>
-          {save.status === 'error' ? t(lang, 'output.locked') : t(lang, 'output.hint')}
+          {save.status === 'error' ? s('output.locked') : s('output.hint')}
         </p>
       )}
     </section>

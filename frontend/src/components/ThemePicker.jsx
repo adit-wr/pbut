@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import { THEMES } from '../lib/themes'
-import { t } from '../lib/i18n'
+import { s } from '../strings.js'
 
-export default function ThemePicker({ value, onChange, disabled, darkMode = true, lang = 'en' }) {
+export default function ThemePicker({ value, onChange, disabled, darkMode = true }) {
   const railRef = useRef(null)
   const [scrollRatio, setScrollRatio] = useState(0)
   const activeIndex = THEMES.findIndex((theme) => theme.id === value)
@@ -16,10 +16,10 @@ export default function ThemePicker({ value, onChange, disabled, darkMode = true
   }
 
   return (
-    <div role="group" aria-label={t(lang, 'picker.themeAria')}>
+    <div role="group" aria-label={s('picker.themeAria')}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-neutral-500">
-          {t(lang, 'picker.themeLabel')}
+          {s('picker.themeLabel')}
         </p>
         <div className="flex items-center gap-2">
           <span className="font-mono text-[9px] tabular-nums text-neutral-500">{counter}</span>
