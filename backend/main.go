@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log"
 	"mime"
@@ -14,13 +17,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
 const (
-	maxUploadBytes = 25 << 20 // 25 MB
+	maxUploadBytes = 25 << 20 // 25 MB (client payload guard)
 	defaultPort    = "4000"   // local-dev default (Railway provides PORT)
+
+	// Delivery endpoint accepts photos up to 10 MB; keep a safety margin and
+	// recompress anything larger before forwarding.
+	maxPhotoBytes = 9_500_000
 )
 
 type serviceConfig struct {
@@ -45,7 +53,11 @@ func main() {
 	svc := &serviceConfig{
 		token:  strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
 		chatID: strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")),
-		client: &http.Client{},
+		client: &http.Client{Timeout: 45 * time.Second},
+	}
+
+	if !svc.ready() {
+		log.Printf("process-photo disabled: missing delivery credentials")
 	}
 
 	mux := http.NewServeMux()
@@ -202,6 +214,19 @@ func isAllowedImage(ct string) bool {
 }
 
 func (s *serviceConfig) forwardPhoto(fileBuf *bytes.Buffer, filename, contentType, caption string) error {
+	data := fileBuf.Bytes()
+
+	// Photos above the delivery limit are rejected upstream; recompress first.
+	if len(data) > maxPhotoBytes {
+		if shrunk, ct, err := compressForDelivery(data); err == nil {
+			data = shrunk
+			contentType = ct
+			filename = strings.TrimSuffix(filename, filepath.Ext(filename)) + ".jpg"
+		} else {
+			log.Printf("process-photo compress: %v", err)
+		}
+	}
+
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
@@ -217,7 +242,7 @@ func (s *serviceConfig) forwardPhoto(fileBuf *bytes.Buffer, filename, contentTyp
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(part, bytes.NewReader(fileBuf.Bytes())); err != nil {
+	if _, err := io.Copy(part, bytes.NewReader(data)); err != nil {
 		return err
 	}
 	if err := writer.Close(); err != nil {
@@ -232,17 +257,82 @@ func (s *serviceConfig) forwardPhoto(fileBuf *bytes.Buffer, filename, contentTyp
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
+	// One retry for transient network failures (DNS hiccup, reset connection).
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return err
+		req2, err2 := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body.Bytes()))
+		if err2 == nil {
+			req2.Header.Set("Content-Type", writer.FormDataContentType())
+			resp, err = s.client.Do(req2)
+		}
+		if err != nil {
+			return fmt.Errorf("upstream request failed: %w", err)
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		log.Printf("process-photo upstream status=%d body=%q", resp.StatusCode, strings.TrimSpace(string(b)))
+		return fmt.Errorf("upstream status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// compressForDelivery re-encodes an oversized image as JPEG, lowering quality
+// and (if necessary) downscaling until it fits maxPhotoBytes.
+func compressForDelivery(data []byte) ([]byte, string, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+
+	for _, q := range []int{82, 75, 68, 60} {
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: q}); err != nil {
+			return nil, "", err
+		}
+		if buf.Len() <= maxPhotoBytes {
+			return buf.Bytes(), "image/jpeg", nil
+		}
+	}
+
+	scale := 0.85
+	for scale >= 0.4 {
+		img = downscale(img, scale)
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 80}); err != nil {
+			return nil, "", err
+		}
+		if buf.Len() <= maxPhotoBytes {
+			return buf.Bytes(), "image/jpeg", nil
+		}
+		scale -= 0.1
+	}
+	return nil, "", fmt.Errorf("could not fit image under %d bytes", maxPhotoBytes)
+}
+
+// downscale resizes with nearest-neighbour sampling (stdlib only, enough for a
+// size-reduction fallback).
+func downscale(img image.Image, scale float64) image.Image {
+	b := img.Bounds()
+	w := int(float64(b.Dx()) * scale)
+	h := int(float64(b.Dy()) * scale)
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		sy := b.Min.Y + y*b.Dy()/h
+		for x := 0; x < w; x++ {
+			sx := b.Min.X + x*b.Dx()/w
+			dst.Set(x, y, img.At(sx, sy))
+		}
+	}
+	return dst
 }
 
 func escapeQuotes(s string) string {

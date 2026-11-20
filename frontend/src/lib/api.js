@@ -40,18 +40,45 @@ export function processPhoto(blob, filename, caption) {
   return request('/api/process-photo', { method: 'POST', body })
 }
 
-/** Saves a canvas as a JPEG blob (smaller, reliable for processing/upload). */
-export function canvasToImageBlob(canvas, { type = 'image/jpeg', quality = 0.92 } = {}) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) resolve(blob)
-        else reject(new Error('Could not export the photo strip.'))
-      },
-      type,
-      quality,
-    )
-  })
+/** Saves a canvas as a JPEG blob (smaller, reliable for processing/upload).
+ *  Adaptively lowers quality and, if needed, downscales until the blob fits
+ *  `maxBytes` (default 8 MB — safely below the 10 MB delivery limit).
+ */
+export async function canvasToImageBlob(
+  canvas,
+  { type = 'image/jpeg', quality = 0.92, maxBytes = 8 * 1024 * 1024 } = {},
+) {
+  const encode = (c, q) =>
+    new Promise((resolve, reject) => {
+      c.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('Could not export the photo strip.'))),
+        type,
+        q,
+      )
+    })
+
+  let blob = await encode(canvas, quality)
+  if (blob.size <= maxBytes) return blob
+
+  // Step 1: lower JPEG quality.
+  for (let q = quality - 0.1; q >= 0.6; q -= 0.1) {
+    blob = await encode(canvas, q)
+    if (blob.size <= maxBytes) return blob
+  }
+
+  // Step 2: progressively downscale, then re-encode.
+  for (let scale = 0.9; scale >= 0.4 && blob.size > maxBytes; scale -= 0.1) {
+    const scaled = document.createElement('canvas')
+    scaled.width = Math.max(1, Math.round(canvas.width * scale))
+    scaled.height = Math.max(1, Math.round(canvas.height * scale))
+    const sctx = scaled.getContext('2d')
+    if (!sctx) break
+    sctx.imageSmoothingEnabled = true
+    sctx.imageSmoothingQuality = 'high'
+    sctx.drawImage(canvas, 0, 0, scaled.width, scaled.height)
+    blob = await encode(scaled, 0.85)
+  }
+  return blob
 }
 
 /** Backward-compatible alias. */

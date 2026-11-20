@@ -239,7 +239,8 @@ export default function BoothPage() {
     const canvas = canvasRef.current
     if (!canvas || !processed) return // locked until processing completes
     try {
-      const blob = await canvasToImageBlob(canvas)
+      // Download keeps full canvas quality (no upload size cap).
+      const blob = await canvasToImageBlob(canvas, { quality: 0.95, maxBytes: Infinity })
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
