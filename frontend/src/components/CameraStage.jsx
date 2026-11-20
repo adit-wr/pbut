@@ -6,6 +6,10 @@ import { drawBeautified } from '../lib/beautyPipeline'
 import { DEFAULT_FILTER } from '../lib/filters'
 import { DEFAULT_AR_FILTER } from '../lib/arFilters'
 
+const isMobileDevice =
+  typeof navigator !== 'undefined' &&
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+
 function describeCameraError(err) {
   const name = err?.name || String(err)
   switch (name) {
@@ -75,117 +79,158 @@ export default function CameraStage({
       if (isMounted) landmarker = lm
     })
 
+    let lastVideoTime = -1
+    let stalledSince = 0
+    let beautyWarned = false
+
     const tick = (now) => {
       if (!isMounted) return
 
-      const video = webcamRef.current?.video
-      const canvas = canvasRef.current
+      try {
+        const video = webcamRef.current?.video
+        const canvas = canvasRef.current
 
-      if (video && video.readyState >= 2 && canvas) {
-        const vw = video.videoWidth
-        const vh = video.videoHeight
-        const cw = canvas.clientWidth
-        const ch = canvas.clientHeight
+        if (video && video.readyState >= 2 && canvas) {
+          const vw = video.videoWidth
+          const vh = video.videoHeight
+          const cw = canvas.clientWidth
+          const ch = canvas.clientHeight
 
-        // Adaptive quality: only reduce when preview stutters/freezes, not at start
-        const perf = perfRef.current
-        if (perf.lastFrame) {
-          const dt = now - perf.lastFrame
-          if (qualityRef.current >= 1) {
-            if (dt > 170) {
-              perf.slow += 1
-            } else {
-              perf.slow = 0
-            }
-            if (perf.slow >= 4) {
-              perf.slow = 0
-              perf.fast = 0
-              qualityRef.current = 0.55
-              onQualityChange?.(0.55)
-            }
-          } else if (dt < 60) {
-            perf.fast += 1
-            if (perf.fast >= 90) {
-              perf.fast = 0
-              perf.slow = 0
-              qualityRef.current = 1
-              onQualityChange?.(1)
-            }
-          } else {
-            perf.fast = 0
-          }
-        }
-        perf.lastFrame = now
-
-        if (vw && vh && cw && ch) {
-          if (canvas.width !== cw || canvas.height !== ch) {
-            canvas.width = cw
-            canvas.height = ch
-          }
-
-          const q = qualityRef.current
-          const detectInterval = q < 1 ? 90 : 33
-
-          // Throttle face detection (slower in reduced-quality mode) to save CPU/GPU
-          if (landmarker && now - lastDetect >= detectInterval) {
-            lastDetect = now
+          // Mobile Safari can suspend the stream when the tab is backgrounded.
+          // If currentTime stops advancing, nudge playback instead of leaving
+          // the canvas frozen on the last drawn frame.
+          if (video.currentTime !== lastVideoTime) {
+            lastVideoTime = video.currentTime
+            stalledSince = now
+          } else if (stalledSince && now - stalledSince > 1500) {
+            stalledSince = now
             try {
-              const res = landmarker.detectForVideo(video, now)
-              const faces = res?.faceLandmarks || []
-              latestLandmarksRef.current = faces
-              onLandmarksUpdate?.(faces)
+              video.play?.()?.catch?.(() => {})
             } catch {
-              // Frame dropped or task busy
+              /* ignore */
             }
           }
 
-          const ctx = canvas.getContext('2d')
-          if (ctx) {
-            // object-cover crop for the full video frame
-            const scale = Math.max(cw / vw, ch / vh)
-            const dw = vw * scale
-            const dh = vh * scale
-            const dx = (cw - dw) / 2
-            const dy = (ch - dh) / 2
-            const sw = cw / scale
-            const sh = ch / scale
-            const sx = (vw - sw) / 2
-            const sy = (vh - sh) / 2
+          // Adaptive quality: only reduce when preview stutters/freezes, not at start
+          const perf = perfRef.current
+          if (perf.lastFrame) {
+            const dt = now - perf.lastFrame
+            if (qualityRef.current >= 1) {
+              if (dt > 170) {
+                perf.slow += 1
+              } else {
+                perf.slow = 0
+              }
+              if (perf.slow >= 4) {
+                perf.slow = 0
+                perf.fast = 0
+                qualityRef.current = 0.55
+                onQualityChange?.(0.55)
+              }
+            } else if (dt < 60) {
+              perf.fast += 1
+              if (perf.fast >= 90) {
+                perf.fast = 0
+                perf.slow = 0
+                qualityRef.current = 1
+                onQualityChange?.(1)
+              }
+            } else {
+              perf.fast = 0
+            }
+          }
+          perf.lastFrame = now
 
-            const faces = latestLandmarksRef.current || []
+          if (vw && vh && cw && ch) {
+            if (canvas.width !== cw || canvas.height !== ch) {
+              canvas.width = cw
+              canvas.height = ch
+            }
 
-            // Draw beautified, mirrored selfie frame (flip raw video pixels + mirror landmark masks)
-            drawBeautified(
-              ctx,
-              video,
-              sx,
-              sy,
-              sw,
-              sh,
-              0,
-              0,
-              cw,
-              ch,
-              filter,
-              faces,
-              { flipSource: true, mirrorLandmarks: true, srcWFull: vw, srcHFull: vh, quality: q },
-              beautyCacheRef.current,
-            )
+            const q = qualityRef.current
+            const detectInterval = q < 1 ? 90 : 33
 
-            // Render AR Face props on top of the mirrored image.
-            // Landmarks are in raw video space; image pixels are mirrored, so flip X in mapping.
-            if (arFilterId && arFilterId !== 'none' && faces.length > 0) {
-              const toCanvas = (nx, ny) => ({
-                x: dx + (1 - nx) * dw,
-                y: dy + ny * dh,
-              })
-              renderArFilter(ctx, faces, toCanvas, arFilterId)
+            // Throttle face detection (slower in reduced-quality mode) to save CPU/GPU
+            if (landmarker && now - lastDetect >= detectInterval) {
+              lastDetect = now
+              try {
+                const res = landmarker.detectForVideo(video, now)
+                const faces = res?.faceLandmarks || []
+                latestLandmarksRef.current = faces
+                onLandmarksUpdate?.(faces)
+              } catch {
+                // Frame dropped or task busy
+              }
+            }
+
+            const ctx = canvas.getContext('2d')
+            if (ctx) {
+              // object-cover crop for the full video frame
+              const scale = Math.max(cw / vw, ch / vh)
+              const dw = vw * scale
+              const dh = vh * scale
+              const dx = (cw - dw) / 2
+              const dy = (ch - dh) / 2
+              const sw = cw / scale
+              const sh = ch / scale
+              const sx = (vw - sw) / 2
+              const sy = (vh - sh) / 2
+
+              const faces = latestLandmarksRef.current || []
+
+              try {
+                // Draw beautified, mirrored selfie frame (flip raw video pixels + mirror landmark masks)
+                drawBeautified(
+                  ctx,
+                  video,
+                  sx,
+                  sy,
+                  sw,
+                  sh,
+                  0,
+                  0,
+                  cw,
+                  ch,
+                  filter,
+                  faces,
+                  { flipSource: true, mirrorLandmarks: true, srcWFull: vw, srcHFull: vh, quality: q },
+                  beautyCacheRef.current,
+                )
+
+                // Render AR Face props on top of the mirrored image.
+                // Landmarks are in raw video space; image pixels are mirrored, so flip X in mapping.
+                if (arFilterId && arFilterId !== 'none' && faces.length > 0) {
+                  const toCanvas = (nx, ny) => ({
+                    x: dx + (1 - nx) * dw,
+                    y: dy + ny * dh,
+                  })
+                  renderArFilter(ctx, faces, toCanvas, arFilterId)
+                }
+                beautyWarned = false
+              } catch (err) {
+                // A single bad frame (e.g. malformed landmarks on mobile) must
+                // never kill the animation loop. Fall back to a plain mirrored
+                // frame so the preview stays live instead of freezing.
+                if (!beautyWarned) {
+                  console.warn('Beauty preview frame failed, showing raw frame:', err)
+                  beautyWarned = true
+                }
+                ctx.clearRect(0, 0, cw, ch)
+                ctx.save()
+                ctx.translate(cw, 0)
+                ctx.scale(-1, 1)
+                ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch)
+                ctx.restore()
+              }
             }
           }
         }
+      } catch (err) {
+        console.error('Camera preview frame error:', err)
+      } finally {
+        // Always schedule the next frame, even if a frame threw an error.
+        animFrameRef.current = requestAnimationFrame(tick)
       }
-
-      animFrameRef.current = requestAnimationFrame(tick)
     }
 
     animFrameRef.current = requestAnimationFrame(tick)
@@ -246,8 +291,10 @@ export default function CameraStage({
             forceScreenshotSourceSize
             videoConstraints={{
               facingMode: 'user',
-              width: { ideal: portrait ? 1440 : 2560 },
-              height: { ideal: portrait ? 1920 : 1920 },
+              // Keep mobile cameras at a moderate resolution: high-res frames
+              // plus per-frame beauty processing are what stall phones.
+              width: { ideal: isMobileDevice ? 1280 : portrait ? 1440 : 2560 },
+              height: { ideal: isMobileDevice ? 960 : 1920 },
               aspectRatio: { ideal: portrait ? 3 / 4 : 4 / 3 },
             }}
             onUserMediaError={(err) => onCameraError?.(describeCameraError(err))}
