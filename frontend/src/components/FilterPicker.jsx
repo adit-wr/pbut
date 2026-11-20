@@ -1,17 +1,19 @@
 import { FILTERS } from '../lib/filters'
 
 /**
- * Filter picker — 2-row layout without scrollbar.
+ * Beauty finish picker — two rows, horizontal rail, no visible scrollbar.
+ * Swiss styling: hairline chips, single light-pink accent, no decoration.
  */
 export default function FilterPicker({ value, onChange, disabled, darkMode = true }) {
+  const line = darkMode ? 'border-neutral-800' : 'border-neutral-200'
+  const muted = 'text-neutral-500'
+
   return (
     <div role="group" aria-label="Photo filters">
-      <div className="mb-2 flex items-center justify-between">
-        <p className={`text-xs font-semibold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          Beauty Filter
-        </p>
-      </div>
-      <div className="fade-right grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
+      <p className={`mb-2 text-[10px] font-bold uppercase leading-none tracking-[0.22em] ${muted}`}>
+        Beauty finish
+      </p>
+      <div className="grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {FILTERS.map((filter) => {
           const active = filter.id === value
           return (
@@ -21,16 +23,13 @@ export default function FilterPicker({ value, onChange, disabled, darkMode = tru
               disabled={disabled}
               onClick={() => onChange(filter.id)}
               aria-pressed={active}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`h-8 shrink-0 border px-2.5 text-[10px] font-medium uppercase leading-none tracking-[0.12em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
                 active
-                  ? 'border-sky-400 bg-sky-500/20 text-sky-400 shadow-sm'
-                  : darkMode
-                    ? 'border-slate-800 bg-slate-900/90 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                    : 'border-slate-200 bg-slate-100 text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                  ? 'border-pink-300 bg-pink-300 text-neutral-950'
+                  : `${line} ${muted} hover:text-neutral-950 dark:hover:text-neutral-50`
               }`}
             >
-              <span className="text-sm">{filter.emoji}</span>
-              <span>{filter.name}</span>
+              {filter.name}
             </button>
           )
         })}

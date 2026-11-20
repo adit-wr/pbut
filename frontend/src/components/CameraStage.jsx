@@ -3,6 +3,8 @@ import Webcam from 'react-webcam'
 import { getFaceLandmarker } from '../lib/faceTracker'
 import { renderArFilter } from '../lib/renderArOverlay'
 import { drawBeautified } from '../lib/beautyPipeline'
+import { DEFAULT_FILTER } from '../lib/filters'
+import { DEFAULT_AR_FILTER } from '../lib/arFilters'
 
 function describeCameraError(err) {
   const name = err?.name || String(err)
@@ -35,11 +37,11 @@ export default function CameraStage({
   cameraOn,
   onToggleCamera,
   error,
-  onRetry,
   onCameraError,
+  onRetry,
   photoCount = 3,
-  filter,
-  arFilterId = 'none',
+  filter = DEFAULT_FILTER,
+  arFilterId = DEFAULT_AR_FILTER.id,
   quality = 1,
   onQualityChange,
   onLandmarksUpdate,
@@ -196,45 +198,46 @@ export default function CameraStage({
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10 ${
+      className={`relative w-full overflow-hidden border bg-neutral-950 ${
         portrait ? 'mx-auto aspect-[3/4] max-w-sm' : 'aspect-video'
-      }`}
+      } border-neutral-800`}
     >
       {!cameraOn ? (
-        <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-          <span className="text-4xl opacity-80">📷</span>
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
           <div>
-            <p className="font-semibold text-slate-200">Camera is off</p>
-            <p className="mt-1 text-sm text-slate-400">Turn it on to start capturing.</p>
+            <p className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-pink-300">
+              Camera off
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed text-neutral-400">
+              Turn it on to start capturing.
+            </p>
           </div>
           <button
             type="button"
             onClick={onToggleCamera}
-            className="min-h-11 rounded-lg bg-white px-5 py-2.5 text-sm font-bold text-slate-900 transition hover:bg-slate-200"
+            className="min-h-11 border border-white bg-white px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-neutral-200 md:cursor-pointer"
           >
             Turn camera on
           </button>
         </div>
       ) : error ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-          <div className="grid size-14 place-items-center rounded-full bg-rose-500/15 text-2xl">
-            📷
-          </div>
           <div>
-            <p className="font-semibold text-rose-300">Camera unavailable</p>
-            <p className="mt-1 max-w-sm text-sm text-slate-400">{error}</p>
+            <p className="text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-pink-300">
+              Camera unavailable
+            </p>
+            <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-neutral-400">{error}</p>
           </div>
           <button
             type="button"
             onClick={onRetry}
-            className="min-h-11 rounded-lg bg-white px-5 py-2.5 text-sm font-bold text-slate-900 transition hover:bg-slate-200"
+            className="min-h-11 border border-white bg-white px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-neutral-200 md:cursor-pointer"
           >
             Try again
           </button>
         </div>
       ) : (
         <>
-          {/* Hidden video source (kept for face tracking and capture). Rendering happens on canvas. */}
           <Webcam
             ref={webcamRef}
             audio={false}
@@ -251,22 +254,17 @@ export default function CameraStage({
             className="pointer-events-none absolute h-0 w-0 opacity-0"
           />
 
-          {/* Beautified + AR output canvas (mirrored selfie drawn in pixels) */}
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
+          <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
 
-          {/* Live indicator */}
-          <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white backdrop-blur">
-            <span className="size-2 animate-pulse rounded-full bg-rose-500" /> Live
+          <div className="absolute left-3 top-3 flex items-center gap-2 border border-white/20 bg-black/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+            <span className="size-1.5 animate-pulse bg-pink-300" /> Live
           </div>
 
           {countdown !== null && (
-            <div className="absolute inset-0 grid place-items-center bg-black/45">
+            <div className="absolute inset-0 grid place-items-center bg-black/50">
               <span
                 key={countdown}
-                className="animate-countdown text-7xl font-black tabular-nums text-white drop-shadow-[0_6px_24px_rgba(0,0,0,0.6)] sm:text-8xl"
+                className="animate-countdown text-8xl font-bold tabular-nums text-white"
               >
                 {countdown}
               </span>
@@ -274,8 +272,8 @@ export default function CameraStage({
           )}
 
           {busy && countdown === null && (
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white">
-              Processing…
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 border border-white/20 bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+              Processing
             </div>
           )}
         </>

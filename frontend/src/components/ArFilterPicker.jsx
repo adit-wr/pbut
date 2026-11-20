@@ -1,17 +1,19 @@
 import { AR_FILTERS } from '../lib/arFilters'
 
 /**
- * AR Face Tracking Filter Picker — 2-row layout without scrollbar.
+ * AR face-tracking picker — two rows, horizontal rail, no visible scrollbar.
+ * Swiss styling: hairline chips, single light-pink accent, no decoration.
  */
 export default function ArFilterPicker({ value, onChange, disabled, darkMode = true }) {
+  const line = darkMode ? 'border-neutral-800' : 'border-neutral-200'
+  const muted = 'text-neutral-500'
+
   return (
-    <div role="group" aria-label="AR Face filters">
-      <div className="mb-2 flex items-center justify-between">
-        <p className={`text-xs font-semibold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-          AR 3D Face Filter
-        </p>
-      </div>
-      <div className="fade-right grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
+    <div role="group" aria-label="AR face filters">
+      <p className={`mb-2 text-[10px] font-bold uppercase leading-none tracking-[0.22em] ${muted}`}>
+        Face tracking
+      </p>
+      <div className="grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {AR_FILTERS.map((item) => {
           const active = item.id === value
           return (
@@ -22,16 +24,13 @@ export default function ArFilterPicker({ value, onChange, disabled, darkMode = t
               onClick={() => onChange(item.id)}
               aria-pressed={active}
               title={item.description}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`h-8 shrink-0 border px-2.5 text-[10px] font-medium uppercase leading-none tracking-[0.12em] transition disabled:cursor-not-allowed disabled:opacity-40 ${
                 active
-                  ? 'border-amber-400 bg-amber-500/20 text-amber-500 shadow-sm'
-                  : darkMode
-                    ? 'border-slate-800 bg-slate-900/90 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                    : 'border-slate-200 bg-slate-100 text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                  ? 'border-pink-300 bg-pink-300 text-neutral-950'
+                  : `${line} ${muted} hover:text-neutral-950 dark:hover:text-neutral-50`
               }`}
             >
-              <span className="text-sm">{item.emoji}</span>
-              <span>{item.name}</span>
+              {item.name}
             </button>
           )
         })}

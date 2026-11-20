@@ -7,12 +7,8 @@ import { THEMES } from '../lib/themes'
 export default function ThemePicker({ value, onChange, disabled, darkMode = true }) {
   return (
     <div role="group" aria-label="Photo strip themes">
-      <p
-        className={`mb-2 text-xs font-semibold uppercase tracking-wider ${
-          darkMode ? 'text-slate-400' : 'text-slate-500'
-        }`}
-      >
-        Theme &amp; motif
+      <p className="mb-2 text-[10px] font-bold uppercase leading-none tracking-[0.22em] text-neutral-500">
+        Frame &amp; motif
       </p>
       <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto pr-1 no-scrollbar sm:max-h-80">
         {THEMES.map((theme) => {
@@ -25,44 +21,33 @@ export default function ThemePicker({ value, onChange, disabled, darkMode = true
               onClick={() => onChange(theme.id)}
               aria-pressed={active}
               title={theme.name}
-              className={`rounded-xl border p-1.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`border p-1.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                 active
-                  ? darkMode
-                    ? 'border-white bg-white/10'
-                    : 'border-slate-900 bg-slate-200'
+                  ? 'border-pink-300'
                   : darkMode
-                    ? 'border-slate-800 bg-slate-900 hover:border-slate-500'
-                    : 'border-slate-200 bg-white hover:border-slate-400'
+                    ? 'border-neutral-800 hover:border-neutral-600'
+                    : 'border-neutral-200 hover:border-neutral-400'
               }`}
             >
               {/* mini strip preview */}
               <span
-                className="relative flex h-11 flex-col gap-[3px] rounded-md p-[3px] ring-1 ring-black/10"
+                className="flex h-11 flex-col gap-[3px] p-[3px]"
                 style={{ backgroundColor: theme.frame }}
               >
                 {[0, 1, 2].map((slot) => (
                   <span
                     key={slot}
-                    className="flex-1 rounded-[2px] border"
+                    className="flex-1 border"
                     style={{
                       borderColor: theme.accent,
                       backgroundColor: theme.photoFallback,
                     }}
                   />
                 ))}
-                <span className="absolute -right-1 -top-1.5 text-sm leading-none drop-shadow">
-                  {theme.emoji}
-                </span>
               </span>
               <span
-                className={`mt-1 block truncate text-center text-[10px] font-semibold sm:text-[11px] ${
-                  active
-                    ? darkMode
-                      ? 'text-white'
-                      : 'text-slate-900'
-                    : darkMode
-                      ? 'text-slate-400'
-                      : 'text-slate-500'
+                className={`mt-1.5 block truncate text-[9px] font-medium uppercase leading-none tracking-[0.1em] ${
+                  active ? 'text-pink-600 dark:text-pink-300' : 'text-neutral-500'
                 }`}
               >
                 {theme.name}

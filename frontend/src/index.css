@@ -1,8 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Poppins', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  --font-sans: 'Inter', 'Helvetica Neue', Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
 
   /* Countdown pop animation */
   @keyframes countdown-pop {
@@ -37,6 +36,16 @@ html,
 body,
 #root {
   min-height: 100%;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: #f9a8d4;
+  color: #0a0a0a;
 }
 
 .no-scrollbar::-webkit-scrollbar {
