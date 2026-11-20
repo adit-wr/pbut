@@ -1,4 +1,5 @@
 import CameraStage from './CameraStage.jsx'
+import CameraIcon from './CameraIcon.jsx'
 import { t } from '../lib/i18n.js'
 import { COUNTDOWN_SECONDS } from '../config.js'
 
@@ -97,27 +98,19 @@ export default function CameraPanel({ booth }) {
                   ? t(lang, 'camera.takeAgain')
                   : t(lang, 'camera.start')
             }
-            className={`relative grid size-14 shrink-0 place-items-center transition disabled:cursor-not-allowed disabled:opacity-30 md:cursor-pointer ${accentFill}`}
+            className={`relative grid h-14 w-full place-items-center px-6 transition disabled:cursor-not-allowed disabled:opacity-30 sm:w-auto sm:shrink-0 md:cursor-pointer ${accentFill}`}
           >
             {phase === 'counting' ? (
               <span className="font-mono text-xl font-bold tabular-nums leading-none">
                 {countdown ?? ''}
               </span>
             ) : (
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                className="size-6"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="square"
-                strokeLinejoin="miter"
-              >
-                <rect x="2" y="6" width="14" height="12" />
-                <circle cx="9" cy="12" r="3" />
-                <path d="M16 11l6-4v10l-6-4z" />
-              </svg>
+              <span className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold uppercase leading-none tracking-[0.22em]">
+                  {t(lang, 'camera.capture')}
+                </span>
+                <CameraIcon className="size-6" />
+              </span>
             )}
             {reviewing && <span className="absolute right-1 top-1 size-1.5 bg-neutral-950" />}
           </button>
@@ -144,19 +137,7 @@ export default function CameraPanel({ booth }) {
                       : `translate-x-[3px] ${darkMode ? 'bg-neutral-300 text-neutral-950' : 'bg-neutral-950 text-neutral-50'}`
                   }`}
                 >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    className="size-3"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="square"
-                    strokeLinejoin="miter"
-                  >
-                    <rect x="2" y="6" width="14" height="12" />
-                    <path d="M16 11l6-4v10l-6-4z" />
-                  </svg>
+                  <CameraIcon className="size-3" strokeWidth={2} />
                 </span>
               </button>
               <span
