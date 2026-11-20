@@ -3,13 +3,23 @@
  *
  * Every id below maps 1:1 to a renderer in renderArOverlay.js (RENDERERS_3D),
  * plus the `none` off-state. The list is ordered for the picker:
- *   1. the 7 newest animation effects
- *   2. off-state + props/accessories
- *   3. animal face props (last)
+ *   1. off-state (None)
+ *   2. the 7 newest animation effects
+ *   3. props/accessories
+ *   4. animal face props (last)
  * renderArOverlay.js itself is used as-is and is never edited here.
  */
 export const AR_FILTERS = [
-  // --- 7 new animations (front of the picker) ---
+  // --- off-state (first) ---
+  {
+    id: 'none',
+    name: 'None',
+    emoji: '🚫',
+    description: 'No face stickers',
+  },
+
+  // --- 7 new animations ---
+
   {
     id: 'love',
     name: 'Love',
@@ -51,14 +61,6 @@ export const AR_FILTERS = [
     name: 'Bubbles',
     emoji: '🫧',
     description: 'Iridescent soap bubbles rising around the head',
-  },
-
-  // --- off-state ---
-  {
-    id: 'none',
-    name: 'None',
-    emoji: '🚫',
-    description: 'No face stickers',
   },
 
   // --- props & accessories ---
@@ -186,5 +188,18 @@ export const AR_FILTERS = [
   },
 ]
 
-// No sticker by default — do not depend on list position.
-export const DEFAULT_AR_FILTER = AR_FILTERS.find((item) => item.id === 'none') ?? AR_FILTERS[0]
+// No sticker by default (None is the first entry).
+export const DEFAULT_AR_FILTER = AR_FILTERS[0]
+
+/**
+ * renderArOverlay.js derives its head-top anchor from landmark 10 (forehead).
+ * MediaPipe marks that point at the hairline, so hats/crowns/halos can end up
+ * sitting on the forehead. Lift only that landmark a little so head props sit
+ * above the skull; every other landmark is left untouched so glasses, blush
+ * and lip effects stay aligned with the face.
+ */
+export function liftForeheadLandmarks(faces, amount = 0.055) {
+  return faces.map((face) =>
+    face.map((pt, i) => (i === 10 ? { ...pt, y: pt.y - amount } : pt)),
+  )
+}

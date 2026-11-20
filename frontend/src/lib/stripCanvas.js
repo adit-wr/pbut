@@ -25,6 +25,7 @@
  */
 
 import { renderArFilter } from './renderArOverlay'
+import { liftForeheadLandmarks } from './arFilters'
 import { drawBeautified } from './beautyPipeline'
 
 const SCALE = 3 // 3x the original layout (1800px wide) → a much sharper strip
@@ -348,7 +349,7 @@ export function drawPhotoStrip(canvas, images, theme, filter, arFilterId, option
           y: dy + ny * dh,
         })
 
-        renderArFilter(ctx, img._landmarks, toSlotCanvas, arFilterId)
+        renderArFilter(ctx, liftForeheadLandmarks(img._landmarks), toSlotCanvas, arFilterId)
       }
     }
     ctx.restore()

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import Webcam from 'react-webcam'
 import { getFaceLandmarker } from '../lib/faceTracker'
 import { renderArFilter } from '../lib/renderArOverlay'
+import { liftForeheadLandmarks } from '../lib/arFilters'
 import { drawBeautified } from '../lib/beautyPipeline'
 import { DEFAULT_FILTER } from '../lib/filters'
 import { DEFAULT_AR_FILTER } from '../lib/arFilters'
@@ -204,7 +205,7 @@ export default function CameraStage({
                     x: dx + (1 - nx) * dw,
                     y: dy + ny * dh,
                   })
-                  renderArFilter(ctx, faces, toCanvas, arFilterId)
+                  renderArFilter(ctx, liftForeheadLandmarks(faces), toCanvas, arFilterId)
                 }
                 beautyWarned = false
               } catch (err) {
