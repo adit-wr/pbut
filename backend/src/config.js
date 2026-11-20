@@ -1,4 +1,15 @@
-import 'dotenv/config'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import dotenv from 'dotenv'
+
+/**
+ * Load `backend/.env` regardless of the directory the server was started from
+ * (e.g. `node backend/server.js` from the repo root, or `npm start`).
+ * Real environment variables (Railway/CI) always win — dotenv never overrides
+ * values that already exist in `process.env`.
+ */
+const here = path.dirname(fileURLToPath(import.meta.url))
+dotenv.config({ path: path.resolve(here, '../.env') })
 
 /**
  * Central configuration. Credentials come from `backend/.env` (dotenv).

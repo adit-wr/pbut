@@ -1,91 +1,206 @@
 /**
- * Procedural vector AR face tracking overlays rendered on HTML5 Canvas.
- * Supports 20 aesthetic props with sub-pixel crispness at any canvas resolution.
+ * Volumetric 3D AR face tracking overlays rendered on HTML5 Canvas.
+ *
+ * Every prop is built from layered gradients (ambient → body → specular
+ * highlight), soft ambient-occlusion shadows and a subtle pose-based skew, so
+ * the overlays read as solid volumes instead of flat stickers.
+ *
+ * All sizes derive from real face measurements:
+ *  - hw  = half the head width (outer cheek landmarks) → head-mounted props
+ *  - s   = eye distance                                   → face-mounted props
  */
 
-// Helper: draw a 4-point sparkle star
-function drawStar(ctx, cx, cy, r, color = '#facc15') {
+// --- colour helpers ---------------------------------------------------------
+
+function shiftColor(hex, percent) {
+  if (!hex || hex[0] !== '#') return hex
+  let base = hex.slice(1)
+  if (base.length === 3) base = base[0] + base[0] + base[1] + base[1] + base[2] + base[2]
+  const num = parseInt(base, 16)
+  const r = Math.min(255, Math.max(0, (num >> 16) + percent))
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + percent))
+  const b = Math.min(255, Math.max(0, (num & 0xff) + percent))
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+}
+
+/** Solid 3D sphere with drop shadow, body gradient, rim light and gloss. */
+function sphere(ctx, cx, cy, r, color, gloss = '#ffffff', shadow = 0.32) {
+  // Contact shadow
   ctx.save()
+  ctx.fillStyle = `rgba(0,0,0,${shadow})`
+  ctx.beginPath()
+  ctx.ellipse(cx + r * 0.08, cy + r * 0.34, r * 0.92, r * 0.46, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+
+  // Body
+  const g = ctx.createRadialGradient(cx - r * 0.34, cy - r * 0.38, r * 0.04, cx, cy, r * 1.02)
+  g.addColorStop(0, gloss === '#ffffff' ? shiftColor(color, 45) : gloss)
+  g.addColorStop(0.28, color)
+  g.addColorStop(0.82, shiftColor(color, -40))
+  g.addColorStop(1, shiftColor(color, -70))
+
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Rim light (bottom-right bounce)
+  const rim = ctx.createRadialGradient(cx + r * 0.5, cy + r * 0.55, 0, cx + r * 0.5, cy + r * 0.55, r * 0.8)
+  rim.addColorStop(0, 'rgba(255,255,255,0.18)')
+  rim.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = rim
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Specular hotspot
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'
+  ctx.beginPath()
+  ctx.ellipse(cx - r * 0.33, cy - r * 0.4, r * 0.24, r * 0.14, -0.45, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+/** Rounded volumetric capsule (sunglasses barrel, hat bands, …). */
+function capsule(ctx, x, y, w, h, color) {
+  const g = ctx.createLinearGradient(x - w / 2, y - h / 2, x - w / 2, y + h / 2)
+  g.addColorStop(0, shiftColor(color, 55))
+  g.addColorStop(0.35, color)
+  g.addColorStop(0.75, shiftColor(color, -35))
+  g.addColorStop(1, shiftColor(color, -65))
+
+  ctx.fillStyle = g
+  ctx.beginPath()
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x - w / 2, y - h / 2, w, h, Math.min(w, h) / 2)
+  } else {
+    ctx.rect(x - w / 2, y - h / 2, w, h)
+  }
+  ctx.fill()
+}
+
+/** Glowing 3D sparkle. */
+function sparkle(ctx, cx, cy, r, color = '#facc15') {
+  ctx.save()
+  ctx.shadowColor = color
+  ctx.shadowBlur = r * 1.2
   ctx.fillStyle = color
   ctx.beginPath()
   for (let i = 0; i < 8; i += 1) {
-    const rad = (i * Math.PI) / 4
-    const dist = i % 2 === 0 ? r : r * 0.35
-    const x = cx + Math.cos(rad) * dist
-    const y = cy + Math.sin(rad) * dist
+    const a = (i * Math.PI) / 4
+    const d = i % 2 === 0 ? r : r * 0.32
+    const x = cx + Math.cos(a) * d
+    const y = cy + Math.sin(a) * d
     if (i === 0) ctx.moveTo(x, y)
     else ctx.lineTo(x, y)
   }
   ctx.closePath()
   ctx.fill()
+
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath()
+  ctx.arc(cx, cy, r * 0.24, 0, Math.PI * 2)
+  ctx.fill()
   ctx.restore()
 }
 
-// Helper: draw a heart path
-function drawHeart(ctx, x, y, size) {
+/** Volumetric heart. */
+function heart(ctx, x, y, size, color = '#f43f5e') {
   ctx.save()
   ctx.translate(x, y)
+
+  const path = () => {
+    const t = size * 0.3
+    ctx.beginPath()
+    ctx.moveTo(0, t)
+    ctx.bezierCurveTo(0, 0, -size / 2, 0, -size / 2, t)
+    ctx.bezierCurveTo(-size / 2, (size + t) / 2, 0, (size + t) / 1.5, 0, size)
+    ctx.bezierCurveTo(0, (size + t) / 1.5, size / 2, (size + t) / 2, size / 2, t)
+    ctx.bezierCurveTo(size / 2, 0, 0, 0, 0, t)
+    ctx.closePath()
+  }
+
+  // Contact shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.22)'
   ctx.beginPath()
-  const topCurveHeight = size * 0.3
-  ctx.moveTo(0, topCurveHeight)
-  ctx.bezierCurveTo(0, 0, -size / 2, 0, -size / 2, topCurveHeight)
-  ctx.bezierCurveTo(-size / 2, (size + topCurveHeight) / 2, 0, (size + topCurveHeight) / 1.5, 0, size)
-  ctx.bezierCurveTo(0, (size + topCurveHeight) / 1.5, size / 2, (size + topCurveHeight) / 2, size / 2, topCurveHeight)
-  ctx.bezierCurveTo(size / 2, 0, 0, 0, 0, topCurveHeight)
-  ctx.closePath()
+  ctx.ellipse(size * 0.08, size * 0.95, size * 0.42, size * 0.16, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  const g = ctx.createRadialGradient(-size * 0.18, size * 0.02, size * 0.04, 0, size * 0.45, size * 0.95)
+  g.addColorStop(0, shiftColor(color, 70))
+  g.addColorStop(0.35, color)
+  g.addColorStop(1, shiftColor(color, -70))
+
+  path()
+  ctx.fillStyle = g
+  ctx.fill()
+
+  // Gloss
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  ctx.beginPath()
+  ctx.ellipse(-size * 0.24, size * 0.26, size * 0.11, size * 0.06, -0.5, 0, Math.PI * 2)
   ctx.fill()
   ctx.restore()
 }
 
-// Helper: draw soft blush circle
-function drawBlush(ctx, x, y, radius, color = 'rgba(251, 113, 133, 0.42)') {
-  ctx.save()
-  const grad = ctx.createRadialGradient(x, y, 0, x, y, radius)
-  grad.addColorStop(0, color)
-  grad.addColorStop(1, 'rgba(251, 113, 133, 0)')
-  ctx.fillStyle = grad
+/** Soft blush puff. */
+function blush(ctx, x, y, r, color = '251, 113, 133') {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+  g.addColorStop(0, `rgba(${color}, 0.5)`)
+  g.addColorStop(0.6, `rgba(${color}, 0.22)`)
+  g.addColorStop(1, `rgba(${color}, 0)`)
+  ctx.fillStyle = g
   ctx.beginPath()
-  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.arc(x, y, r, 0, Math.PI * 2)
   ctx.fill()
-  ctx.restore()
 }
 
-/**
- * Extracts key face geometry from 478 MediaPipe face landmarks.
- */
-function extractFaceGeometry(landmarks, toCanvas) {
+// --- face geometry ----------------------------------------------------------
+
+function extract3DFaceGeometry(landmarks, toCanvas) {
   const p = (idx) => {
     const lm = landmarks[idx] || landmarks[0]
     return toCanvas(lm.x, lm.y)
   }
 
-  const eyeL = p(468) || p(33) // eye center left
-  const eyeR = p(473) || p(263) // eye center right
+  const eyeL = p(468) || p(33)
+  const eyeR = p(473) || p(263)
   const eyeMid = { x: (eyeL.x + eyeR.x) / 2, y: (eyeL.y + eyeR.y) / 2 }
-  const eyeDist = Math.hypot(eyeR.x - eyeL.x, eyeR.y - eyeL.y)
+  const eyeDist = Math.hypot(eyeR.x - eyeL.x, eyeR.y - eyeL.y) || 100
   const roll = Math.atan2(eyeR.y - eyeL.y, eyeR.x - eyeL.x)
 
-  const forehead = p(10) // hairline
-  const chin = p(152) // chin tip
-  const faceHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y)
+  const forehead = p(10)
+  const chin = p(152)
+  const faceHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y) || eyeDist * 2
 
-  const nose = p(1) // nose tip
+  const nose = p(1)
   const noseBase = p(2)
-  const cheekL = p(234) // outer cheek edge left
-  const cheekR = p(454) // outer cheek edge right
-  const blushL = p(205) || p(116) // cheek apple left
-  const blushR = p(425) || p(345) // cheek apple right
+  const cheekL = p(234)
+  const cheekR = p(454)
+  const blushL = p(205) || p(116)
+  const blushR = p(425) || p(345)
 
   const mouthTop = p(13)
   const mouthBottom = p(14)
   const mouthL = p(61)
   const mouthR = p(291)
-  const mouthOpen = Math.hypot(mouthBottom.x - mouthTop.x, mouthBottom.y - mouthTop.y) / (faceHeight || 1) > 0.045
+  const mouthOpen = Math.hypot(mouthBottom.x - mouthTop.x, mouthBottom.y - mouthTop.y) / faceHeight > 0.045
 
-  // Head center between forehead and eyes
+  // Pose estimation (yaw / pitch) for a bit of 3D parallax.
+  const distL = Math.hypot(nose.x - cheekL.x, nose.y - cheekL.y)
+  const distR = Math.hypot(cheekR.x - nose.x, cheekR.y - nose.y)
+  const yaw = (distR - distL) / (distR + distL || 1)
+
+  const eyeNose = Math.hypot(nose.y - eyeMid.y, nose.x - eyeMid.x)
+  const pitch = (eyeNose / (faceHeight || 1) - 0.28) * 2
+
+  const headW = Math.hypot(cheekR.x - cheekL.x, cheekR.y - cheekL.y) || eyeDist * 1.55
+  const hw = headW / 2
+
+  // Anchor for head-mounted props: the hairline, nudged up a touch.
   const headTop = {
-    x: eyeMid.x - Math.sin(roll) * (faceHeight * 0.55),
-    y: eyeMid.y - Math.cos(roll) * (faceHeight * 0.55),
+    x: forehead.x - Math.sin(roll) * (faceHeight * 0.07) + yaw * (hw * 0.45),
+    y: forehead.y - Math.cos(roll) * (faceHeight * 0.07) + pitch * (eyeDist * 0.25),
   }
 
   return {
@@ -93,7 +208,12 @@ function extractFaceGeometry(landmarks, toCanvas) {
     eyeR,
     eyeMid,
     eyeDist,
+    eyeDistH: hw,
+    hw,
+    headW,
     roll,
+    yaw,
+    pitch,
     forehead,
     chin,
     faceHeight,
@@ -112,959 +232,1169 @@ function extractFaceGeometry(landmarks, toCanvas) {
   }
 }
 
-/**
- * 20 AR Filter Renderers
- */
-const FILTER_RENDERERS = {
-  // 1. Puppy 🐶
-  puppy(ctx, geo) {
-    const s = geo.eyeDist
+// --- 20 volumetric renderers ------------------------------------------------
+
+const RENDERERS_3D = {
+  // 1. Puppy 🐶 — floppy volumetric ears + glossy nose + tongue
+  puppy(ctx, g) {
+    const h = g.hw
+    const s = g.eyeDist
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
 
-    // Floppy ears
-    const earW = s * 0.65
-    const earH = s * 1.35
-
-    const drawEar = (side) => {
+    const ear = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.85, -s * 0.1)
-      ctx.rotate(0.35)
+      ctx.translate(h * 0.72, h * 0.1)
+      ctx.rotate(0.5)
 
-      // Outer ear
-      ctx.fillStyle = '#92400e'
+      // Ear silhouette path
+      const rx = h * 0.34
+      const ry = h * 0.66
+      const path = () => {
+        ctx.beginPath()
+        ctx.ellipse(0, ry * 0.42, rx, ry, 0.08, 0, Math.PI * 2)
+      }
+
+      // Contact shadow
+      ctx.save()
+      ctx.fillStyle = 'rgba(0,0,0,0.28)'
       ctx.beginPath()
-      ctx.ellipse(0, earH * 0.45, earW * 0.5, earH * 0.55, 0.15, 0, Math.PI * 2)
+      ctx.ellipse(h * 0.04, ry * 0.5, rx * 1.05, ry * 1.02, 0.08, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+
+      path()
+      const outer = ctx.createLinearGradient(-rx, 0, rx, ry)
+      outer.addColorStop(0, '#c2703a')
+      outer.addColorStop(0.35, '#8a4a1d')
+      outer.addColorStop(1, '#3f1d08')
+      ctx.fillStyle = outer
       ctx.fill()
 
-      // Inner ear fold
-      ctx.fillStyle = '#b45309'
+      // Inner ear volume
+      ctx.save()
+      ctx.clip()
+      const inner = ctx.createRadialGradient(-rx * 0.2, ry * 0.35, rx * 0.1, 0, ry * 0.5, ry)
+      inner.addColorStop(0, '#f0a2b6')
+      inner.addColorStop(0.7, '#b56a4a')
+      inner.addColorStop(1, '#5a2a10')
+      ctx.fillStyle = inner
       ctx.beginPath()
-      ctx.ellipse(0, earH * 0.48, earW * 0.32, earH * 0.4, 0.15, 0, Math.PI * 2)
+      ctx.ellipse(0, ry * 0.5, rx * 0.56, ry * 0.72, 0.08, 0, Math.PI * 2)
       ctx.fill()
+      ctx.restore()
+
+      // Specular streak
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.lineWidth = Math.max(2, rx * 0.08)
+      ctx.beginPath()
+      ctx.ellipse(0, ry * 0.4, rx * 0.8, ry * 0.86, 0.08, Math.PI * 0.95, Math.PI * 1.55)
+      ctx.stroke()
       ctx.restore()
     }
 
-    drawEar(-1) // Left
-    drawEar(1) // Right
+    ear(-1)
+    ear(1)
     ctx.restore()
 
-    // Shiny Dog Nose
+    // Glossy nose
+    sphere(ctx, g.nose.x, g.nose.y, s * 0.27, '#242c3a', '#ffffff', 0.4)
+
+    // Tongue (hangs from the lower lip)
     ctx.save()
-    ctx.translate(geo.nose.x, geo.nose.y)
-    ctx.rotate(geo.roll)
-    const noseR = s * 0.22
-    ctx.fillStyle = '#0f172a'
+    ctx.translate(g.mouthBottom.x, g.mouthBottom.y - s * 0.02)
+    ctx.rotate(g.roll)
+    const tw = s * 0.42
+    const th = s * (g.mouthOpen ? 0.72 : 0.5)
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'
     ctx.beginPath()
-    ctx.ellipse(0, 0, noseR * 1.25, noseR * 0.85, 0, 0, Math.PI * 2)
+    ctx.ellipse(0, th * 0.75, tw * 0.5, th * 0.28, 0, 0, Math.PI * 2)
     ctx.fill()
 
-    // Nose shine
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'
+    const tg = ctx.createLinearGradient(-tw / 2, 0, tw / 2, th)
+    tg.addColorStop(0, '#c81e4a')
+    tg.addColorStop(0.45, '#fb7185')
+    tg.addColorStop(1, '#9f1239')
+    ctx.fillStyle = tg
     ctx.beginPath()
-    ctx.ellipse(-noseR * 0.35, -noseR * 0.25, noseR * 0.3, noseR * 0.18, -0.3, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.restore()
-
-    // Playful pink tongue
-    ctx.save()
-    ctx.translate(geo.mouthBottom.x, geo.mouthBottom.y)
-    ctx.rotate(geo.roll)
-    const tongueW = s * 0.32
-    const tongueH = s * (geo.mouthOpen ? 0.6 : 0.42)
-    ctx.fillStyle = '#fb7185'
-    ctx.beginPath()
-    ctx.moveTo(-tongueW * 0.5, 0)
-    ctx.quadraticCurveTo(-tongueW * 0.6, tongueH, 0, tongueH)
-    ctx.quadraticCurveTo(tongueW * 0.6, tongueH, tongueW * 0.5, 0)
+    ctx.moveTo(-tw * 0.5, 0)
+    ctx.quadraticCurveTo(-tw * 0.62, th * 0.92, 0, th)
+    ctx.quadraticCurveTo(tw * 0.62, th * 0.92, tw * 0.5, 0)
     ctx.closePath()
     ctx.fill()
 
-    // Tongue divider line
-    ctx.strokeStyle = '#e11d48'
-    ctx.lineWidth = Math.max(2, s * 0.025)
+    ctx.strokeStyle = 'rgba(127,29,29,0.85)'
+    ctx.lineWidth = Math.max(1.5, s * 0.03)
     ctx.beginPath()
-    ctx.moveTo(0, 0)
-    ctx.lineTo(0, tongueH * 0.75)
+    ctx.moveTo(0, th * 0.12)
+    ctx.lineTo(0, th * 0.72)
     ctx.stroke()
     ctx.restore()
   },
 
-  // 2. Kitty 🐱
-  kitty(ctx, geo) {
-    const s = geo.eyeDist
+  // 2. Kitty 🐱 — pointed 3D ears, gem nose, whiskers
+  kitty(ctx, g) {
+    const h = g.hw
+    const s = g.eyeDist
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
 
-    // Pointed cat ears
-    const earW = s * 0.65
-    const earH = s * 0.85
-
-    const drawCatEar = (side) => {
+    const catEar = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.75, -s * 0.05)
-      ctx.rotate(0.2)
+      ctx.translate(h * 0.6, h * 0.08)
+      ctx.rotate(0.16)
 
-      // Outer ear
-      ctx.fillStyle = '#ffffff'
-      ctx.strokeStyle = '#334155'
-      ctx.lineWidth = Math.max(2, s * 0.035)
+      const bw = h * 0.34
+      const bh = h * 0.62
+
+      const path = () => {
+        ctx.beginPath()
+        ctx.moveTo(-bw, 0)
+        ctx.quadraticCurveTo(-bw * 0.35, -bh * 0.72, 0, -bh)
+        ctx.quadraticCurveTo(bw * 0.35, -bh * 0.72, bw, 0)
+        ctx.closePath()
+      }
+
+      ctx.save()
+      ctx.fillStyle = 'rgba(0,0,0,0.22)'
       ctx.beginPath()
-      ctx.moveTo(-earW * 0.5, 0)
-      ctx.lineTo(0, -earH)
-      ctx.lineTo(earW * 0.5, 0)
-      ctx.closePath()
+      ctx.ellipse(0, bh * 0.12, bw * 1.05, bh * 0.22, 0, 0, Math.PI * 2)
       ctx.fill()
-      ctx.stroke()
+      ctx.restore()
 
-      // Inner pink triangle
-      ctx.fillStyle = '#f472b6'
+      path()
+      const outer = ctx.createLinearGradient(-bw, 0, bw, -bh)
+      outer.addColorStop(0, '#cbd5e1')
+      outer.addColorStop(0.45, '#ffffff')
+      outer.addColorStop(1, '#b6c2d1')
+      ctx.fillStyle = outer
+      ctx.fill()
+
+      ctx.save()
+      path()
+      ctx.clip()
+      const inner = ctx.createLinearGradient(0, -bh, 0, 0)
+      inner.addColorStop(0, '#ff9fb8')
+      inner.addColorStop(0.55, '#f472b6')
+      inner.addColorStop(1, '#be185d')
+      ctx.fillStyle = inner
       ctx.beginPath()
-      ctx.moveTo(-earW * 0.3, -earH * 0.08)
-      ctx.lineTo(0, -earH * 0.82)
-      ctx.lineTo(earW * 0.3, -earH * 0.08)
+      ctx.moveTo(-bw * 0.6, -bh * 0.06)
+      ctx.quadraticCurveTo(-bw * 0.2, -bh * 0.62, 0, -bh * 0.82)
+      ctx.quadraticCurveTo(bw * 0.2, -bh * 0.62, bw * 0.6, -bh * 0.06)
       ctx.closePath()
       ctx.fill()
       ctx.restore()
+      ctx.restore()
     }
 
-    drawCatEar(-1)
-    drawCatEar(1)
+    catEar(-1)
+    catEar(1)
     ctx.restore()
 
-    // Pink triangle nose
-    ctx.save()
-    ctx.translate(geo.nose.x, geo.nose.y)
-    ctx.rotate(geo.roll)
-    const noseS = s * 0.16
-    ctx.fillStyle = '#f43f5e'
-    ctx.beginPath()
-    ctx.moveTo(-noseS, -noseS * 0.5)
-    ctx.lineTo(noseS, -noseS * 0.5)
-    ctx.lineTo(0, noseS * 0.6)
-    ctx.closePath()
-    ctx.fill()
-    ctx.restore()
+    // Pink gem nose
+    sphere(ctx, g.nose.x, g.nose.y, s * 0.18, '#f43f5e', '#fecdd3', 0.3)
 
-    // Whiskers on cheeks
-    const drawWhiskers = (side, cx, cy) => {
+    // Whiskers with a soft shadow so they read over any background
+    const whiskers = (side, x, y) => {
       ctx.save()
-      ctx.translate(cx, cy)
-      ctx.rotate(geo.roll)
+      ctx.translate(x, y)
+      ctx.rotate(g.roll)
       ctx.scale(side, 1)
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)'
-      ctx.lineWidth = Math.max(2, s * 0.04)
       ctx.lineCap = 'round'
-
-      const len = s * 0.85
-      ;[-0.15, 0, 0.15].forEach((angle) => {
+      const len = s * 1.05
+      ;[-0.16, 0, 0.16].forEach((angle, i) => {
+        ctx.strokeStyle = 'rgba(0,0,0,0.28)'
+        ctx.lineWidth = Math.max(3, s * 0.055)
         ctx.beginPath()
-        ctx.moveTo(s * 0.1, 0)
-        ctx.lineTo(s * 0.1 + Math.cos(angle) * len, Math.sin(angle) * len)
+        ctx.moveTo(s * 0.12, i * 0.5 + 1.5)
+        ctx.lineTo(s * 0.12 + Math.cos(angle) * len, Math.sin(angle) * len + 1.5)
+        ctx.stroke()
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.96)'
+        ctx.lineWidth = Math.max(2.2, s * 0.04)
+        ctx.beginPath()
+        ctx.moveTo(s * 0.12, i * 0.5)
+        ctx.lineTo(s * 0.12 + Math.cos(angle) * len, Math.sin(angle) * len)
         ctx.stroke()
       })
       ctx.restore()
     }
 
-    drawWhiskers(-1, geo.blushL.x, geo.blushL.y)
-    drawWhiskers(1, geo.blushR.x, geo.blushR.y)
+    whiskers(-1, g.blushL.x, g.blushL.y)
+    whiskers(1, g.blushR.x, g.blushR.y)
   },
 
-  // 3. Bunny 🐰
-  bunny(ctx, geo) {
-    const s = geo.eyeDist
+  // 3. Bunny 🐰 — tall soft ears + button nose
+  bunny(ctx, g) {
+    const { hw: h, eyeDist: s } = g
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
 
-    // Tall bunny ears
-    const earW = s * 0.42
-    const earH = s * 1.65
-
-    const drawBunnyEar = (side) => {
+    const bunnyEar = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.5, -s * 0.25)
-      ctx.rotate(0.08)
+      ctx.translate(h * 0.4, 0)
+      ctx.rotate(-0.08)
 
-      // Outer white ear
-      ctx.fillStyle = '#ffffff'
-      ctx.strokeStyle = '#cbd5e1'
-      ctx.lineWidth = Math.max(2, s * 0.03)
+      const rx = h * 0.22
+      const ry = h * 0.8
+      const cy = -ry * 0.72
+
+      ctx.fillStyle = 'rgba(0,0,0,0.16)'
       ctx.beginPath()
-      ctx.ellipse(0, -earH * 0.5, earW * 0.5, earH * 0.5, 0, 0, Math.PI * 2)
+      ctx.ellipse(rx * 0.3, cy + ry * 0.1, rx * 1.15, ry * 1.05, 0, 0, Math.PI * 2)
       ctx.fill()
-      ctx.stroke()
 
-      // Inner pink ear
-      ctx.fillStyle = '#fb7185'
+      const outer = ctx.createLinearGradient(-rx, 0, rx, 0)
+      outer.addColorStop(0, '#c8d3e0')
+      outer.addColorStop(0.4, '#ffffff')
+      outer.addColorStop(1, '#aebbcb')
+      ctx.fillStyle = outer
       ctx.beginPath()
-      ctx.ellipse(0, -earH * 0.5, earW * 0.3, earH * 0.4, 0, 0, Math.PI * 2)
+      ctx.ellipse(0, cy, rx, ry, 0, 0, Math.PI * 2)
+      ctx.fill()
+
+      const inner = ctx.createLinearGradient(0, cy - ry, 0, cy + ry)
+      inner.addColorStop(0, '#f43f5e')
+      inner.addColorStop(0.6, '#fb7185')
+      inner.addColorStop(1, '#be123c')
+      ctx.fillStyle = inner
+      ctx.beginPath()
+      ctx.ellipse(0, cy, rx * 0.55, ry * 0.78, 0, 0, Math.PI * 2)
+      ctx.fill()
+
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'
+      ctx.beginPath()
+      ctx.ellipse(-rx * 0.4, cy - ry * 0.35, rx * 0.16, ry * 0.22, -0.2, 0, Math.PI * 2)
       ctx.fill()
       ctx.restore()
     }
 
-    drawBunnyEar(-1)
-    drawBunnyEar(1)
+    bunnyEar(-1)
+    bunnyEar(1)
     ctx.restore()
 
-    // Cute pink nose
-    ctx.save()
-    ctx.translate(geo.nose.x, geo.nose.y)
-    ctx.rotate(geo.roll)
-    const nR = s * 0.14
-    ctx.fillStyle = '#f472b6'
-    ctx.beginPath()
-    ctx.ellipse(0, 0, nR * 1.1, nR * 0.85, 0, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.restore()
-
-    // Rosy bunny cheeks
-    drawBlush(ctx, geo.blushL.x, geo.blushL.y, s * 0.38)
-    drawBlush(ctx, geo.blushR.x, geo.blushR.y, s * 0.38)
+    sphere(ctx, g.nose.x, g.nose.y, s * 0.16, '#fb7185', '#ffffff', 0.28)
+    blush(ctx, g.blushL.x, g.blushL.y, s * 0.42, '244, 114, 182')
+    blush(ctx, g.blushR.x, g.blushR.y, s * 0.42, '244, 114, 182')
   },
 
-  // 4. Teddy Bear 🐻
-  bear(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+  // 4. Teddy Bear 🐻 — fuzzy round ears + muzzle
+  bear(ctx, g) {
+    const { hw: h, eyeDist: s } = g
 
-    // Round bear ears
-    const earR = s * 0.42
-    const drawBearEar = (side) => {
+    ctx.save()
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
+
+    const bearEar = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.85, -s * 0.1)
-
-      // Outer ear
-      ctx.fillStyle = '#78350f'
-      ctx.beginPath()
-      ctx.arc(0, 0, earR, 0, Math.PI * 2)
-      ctx.fill()
-
-      // Inner ear
-      ctx.fillStyle = '#fde68a'
-      ctx.beginPath()
-      ctx.arc(0, 0, earR * 0.55, 0, Math.PI * 2)
-      ctx.fill()
+      ctx.translate(h * 0.66, h * 0.22)
+      sphere(ctx, 0, 0, h * 0.3, '#7c4a21', '#b98456', 0.26)
+      sphere(ctx, 0, 0, h * 0.17, '#e6c48f', '#fff6e0', 0.12)
       ctx.restore()
     }
 
-    drawBearEar(-1)
-    drawBearEar(1)
+    bearEar(-1)
+    bearEar(1)
     ctx.restore()
 
-    // Teddy Muzzle & Nose
+    // Muzzle
     ctx.save()
-    ctx.translate(geo.nose.x, geo.nose.y + s * 0.08)
-    ctx.rotate(geo.roll)
-    const mW = s * 0.48
-    const mH = s * 0.35
-    ctx.fillStyle = '#fef3c7'
+    ctx.translate(g.nose.x, g.nose.y + s * 0.1)
+    ctx.rotate(g.roll)
+    sphere(ctx, 0, 0, s * 0.5, '#e8cfa4', '#fffaf0', 0.14)
+    sphere(ctx, 0, -s * 0.08, s * 0.2, '#2b2118', '#a3958a', 0.2)
+    // Muzzle split
+    ctx.strokeStyle = 'rgba(90,60,30,0.55)'
+    ctx.lineWidth = Math.max(1.2, s * 0.02)
     ctx.beginPath()
-    ctx.ellipse(0, 0, mW, mH, 0, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Small black nose
-    ctx.fillStyle = '#1e1b4b'
-    ctx.beginPath()
-    ctx.ellipse(0, -mH * 0.25, s * 0.14, s * 0.1, 0, 0, Math.PI * 2)
-    ctx.fill()
+    ctx.moveTo(0, s * 0.02)
+    ctx.lineTo(0, s * 0.16)
+    ctx.stroke()
     ctx.restore()
   },
 
-  // 5. Froggy 🐸
-  froggy(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+  // 5. Froggy 🐸 — bulging volumetric eyes
+  froggy(ctx, g) {
+    const { hw: h } = g
 
-    const eyeR = s * 0.36
-    const drawFrogEye = (side) => {
+    ctx.save()
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
+
+    const frogEye = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.65, -s * 0.15)
-
-      // Green eyelid
-      ctx.fillStyle = '#22c55e'
-      ctx.beginPath()
-      ctx.arc(0, 0, eyeR, 0, Math.PI * 2)
-      ctx.fill()
-
-      // White eye
+      ctx.translate(h * 0.52, -h * 0.16)
+      sphere(ctx, 0, 0, h * 0.27, '#3fa34d', '#b9f6a0', 0.3)
+      sphere(ctx, 0, 0, h * 0.185, '#ffffff', '#ffffff', 0.1)
+      sphere(ctx, 0, 0, h * 0.105, '#101a2b', '#5b7089', 0.05)
+      // catchlight
       ctx.fillStyle = '#ffffff'
       ctx.beginPath()
-      ctx.arc(0, 0, eyeR * 0.75, 0, Math.PI * 2)
-      ctx.fill()
-
-      // Black pupil
-      ctx.fillStyle = '#0f172a'
-      ctx.beginPath()
-      ctx.arc(0, 0, eyeR * 0.45, 0, Math.PI * 2)
-      ctx.fill()
-
-      // Catchlight
-      ctx.fillStyle = '#ffffff'
-      ctx.beginPath()
-      ctx.arc(-eyeR * 0.15, -eyeR * 0.15, eyeR * 0.16, 0, Math.PI * 2)
+      ctx.arc(-h * 0.045, -h * 0.05, h * 0.032, 0, Math.PI * 2)
       ctx.fill()
       ctx.restore()
     }
 
-    drawFrogEye(-1)
-    drawFrogEye(1)
+    frogEye(-1)
+    frogEye(1)
     ctx.restore()
 
-    drawBlush(ctx, geo.blushL.x, geo.blushL.y, s * 0.35, 'rgba(253, 164, 175, 0.45)')
-    drawBlush(ctx, geo.blushR.x, geo.blushR.y, s * 0.35, 'rgba(253, 164, 175, 0.45)')
+    blush(ctx, g.blushL.x, g.blushL.y, g.eyeDist * 0.34, '251, 146, 160')
+    blush(ctx, g.blushR.x, g.blushR.y, g.eyeDist * 0.34, '251, 146, 160')
   },
 
-  // 6. Panda 🐼
-  panda(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+  // 6. Panda 🐼 — black ears, eye patches, nose
+  panda(ctx, g) {
+    const { hw: h, eyeDist: s } = g
 
-    const earR = s * 0.4
-    const drawPandaEar = (side) => {
+    ctx.save()
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
+
+    const pandaEar = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.85, -s * 0.08)
-      ctx.fillStyle = '#0f172a'
-      ctx.beginPath()
-      ctx.arc(0, 0, earR, 0, Math.PI * 2)
-      ctx.fill()
+      ctx.translate(h * 0.68, h * 0.16)
+      sphere(ctx, 0, 0, h * 0.28, '#1b2432', '#6b7c93', 0.26)
       ctx.restore()
     }
 
-    drawPandaEar(-1)
-    drawPandaEar(1)
+    pandaEar(-1)
+    pandaEar(1)
     ctx.restore()
 
-    // Panda eye spots
-    const drawEyePatch = (eye) => {
+    // Eye patches (soft volume)
+    const patch = (eye) => {
       ctx.save()
-      ctx.translate(eye.x, eye.y)
-      ctx.rotate(geo.roll)
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.35)'
+      // Nudge slightly towards the temples so the two patches stay separate.
+      ctx.translate(eye.x + (eye.x - g.eyeMid.x) * 0.28, eye.y + s * 0.02)
+      ctx.rotate(g.roll)
+      const rx = s * 0.5
+      const ry = s * 0.44
+      const p = ctx.createRadialGradient(0, 0, rx * 0.15, 0, 0, rx)
+      p.addColorStop(0, 'rgba(16,24,38,0.72)')
+      p.addColorStop(0.7, 'rgba(16,24,38,0.42)')
+      p.addColorStop(1, 'rgba(16,24,38,0.02)')
+      ctx.fillStyle = p
       ctx.beginPath()
-      ctx.ellipse(0, 0, s * 0.32, s * 0.26, 0.2, 0, Math.PI * 2)
+      ctx.ellipse(0, 0, rx, ry, 0.32, 0, Math.PI * 2)
       ctx.fill()
       ctx.restore()
     }
 
-    drawEyePatch(geo.eyeL)
-    drawEyePatch(geo.eyeR)
+    patch(g.eyeL)
+    patch(g.eyeR)
 
-    // Panda nose
-    ctx.save()
-    ctx.translate(geo.nose.x, geo.nose.y)
-    ctx.rotate(geo.roll)
-    ctx.fillStyle = '#0f172a'
-    ctx.beginPath()
-    ctx.ellipse(0, 0, s * 0.18, s * 0.12, 0, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.restore()
+    sphere(ctx, g.nose.x, g.nose.y, s * 0.22, '#1b2432', '#a8b6c8', 0.26)
   },
 
-  // 7. Reindeer 🦌
-  reindeer(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+  // 7. Reindeer 🦌 — antlers + glowing nose
+  reindeer(ctx, g) {
+    const { hw: h, eyeDist: s } = g
 
-    const drawAntler = (side) => {
+    ctx.save()
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
+
+    const antler = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.6, -s * 0.2)
-      ctx.rotate(0.3)
-      ctx.strokeStyle = '#854d0e'
-      ctx.lineWidth = Math.max(3, s * 0.09)
+      ctx.translate(h * 0.5, h * 0.04)
+      ctx.rotate(0.24)
+
+      const beam = () => {
+        ctx.beginPath()
+        ctx.moveTo(0, 0)
+        ctx.bezierCurveTo(-h * 0.16, -h * 0.36, -h * 0.22, -h * 0.66, -h * 0.08, -h * 1.02)
+      }
+
+      // Shadow pass
+      ctx.save()
+      ctx.translate(h * 0.02, h * 0.03)
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)'
       ctx.lineCap = 'round'
+      ctx.lineWidth = h * 0.1
+      beam()
+      ctx.stroke()
+      ctx.restore()
 
       // Main beam
-      ctx.beginPath()
-      ctx.moveTo(0, 0)
-      ctx.quadraticCurveTo(-s * 0.2, -s * 0.8, -s * 0.1, -s * 1.3)
+      const grad = ctx.createLinearGradient(0, 0, -h * 0.1, -h * 1.05)
+      grad.addColorStop(0, '#6b3f14')
+      grad.addColorStop(0.5, '#a9722f')
+      grad.addColorStop(1, '#d9b476')
+      ctx.strokeStyle = grad
+      ctx.lineCap = 'round'
+      ctx.lineWidth = h * 0.085
+      beam()
       ctx.stroke()
 
       // Tines
-      ctx.beginPath()
-      ctx.moveTo(-s * 0.12, -s * 0.5)
-      ctx.lineTo(s * 0.2, -s * 0.7)
-      ctx.stroke()
-
-      ctx.beginPath()
-      ctx.moveTo(-s * 0.15, -s * 0.9)
-      ctx.lineTo(s * 0.15, -s * 1.15)
-      ctx.stroke()
+      ctx.lineWidth = h * 0.065
+      const tine = (x1, y1, x2, y2) => {
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.quadraticCurveTo((x1 + x2) / 2, y1 - h * 0.05, x2, y2)
+        ctx.stroke()
+      }
+      tine(-h * 0.13, -h * 0.38, h * 0.22, -h * 0.58)
+      tine(-h * 0.17, -h * 0.7, h * 0.14, -h * 0.92)
       ctx.restore()
     }
 
-    drawAntler(-1)
-    drawAntler(1)
+    antler(-1)
+    antler(1)
     ctx.restore()
 
-    // Rudolph Glowing Red Nose
+    // Glow + glossy red nose
     ctx.save()
-    ctx.translate(geo.nose.x, geo.nose.y)
-    ctx.rotate(geo.roll)
-    const noseR = s * 0.22
-
-    // Red glow
-    const glow = ctx.createRadialGradient(0, 0, noseR * 0.3, 0, 0, noseR * 2.2)
-    glow.addColorStop(0, 'rgba(239, 68, 68, 0.7)')
-    glow.addColorStop(1, 'rgba(239, 68, 68, 0)')
+    const glow = ctx.createRadialGradient(
+      g.nose.x,
+      g.nose.y,
+      s * 0.1,
+      g.nose.x,
+      g.nose.y,
+      s * 0.95,
+    )
+    glow.addColorStop(0, 'rgba(239,68,68,0.55)')
+    glow.addColorStop(1, 'rgba(239,68,68,0)')
     ctx.fillStyle = glow
     ctx.beginPath()
-    ctx.arc(0, 0, noseR * 2.2, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Core nose
-    ctx.fillStyle = '#ef4444'
-    ctx.beginPath()
-    ctx.arc(0, 0, noseR, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Shine
-    ctx.fillStyle = '#ffffff'
-    ctx.beginPath()
-    ctx.arc(-noseR * 0.35, -noseR * 0.35, noseR * 0.25, 0, Math.PI * 2)
+    ctx.arc(g.nose.x, g.nose.y, s * 0.95, 0, Math.PI * 2)
     ctx.fill()
     ctx.restore()
+
+    sphere(ctx, g.nose.x, g.nose.y, s * 0.27, '#e11d48', '#ffd1d1', 0.34)
   },
 
-  // 8. Royal Crown 👑
-  crown(ctx, geo) {
-    const s = geo.eyeDist
+  // 8. Crown 👑 — metallic gold, jewels
+  crown(ctx, g) {
+    const { hw: h } = g
+    const w = h * 1.9
+    const ht = h * 0.95
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
 
-    const w = s * 1.4
-    const h = s * 0.9
+    const crownPath = () => {
+      ctx.beginPath()
+      ctx.moveTo(-w * 0.5, 0)
+      ctx.lineTo(-w * 0.46, -ht * 0.72)
+      ctx.lineTo(-w * 0.24, -ht * 0.4)
+      ctx.lineTo(0, -ht)
+      ctx.lineTo(w * 0.24, -ht * 0.4)
+      ctx.lineTo(w * 0.46, -ht * 0.72)
+      ctx.lineTo(w * 0.5, 0)
+      ctx.closePath()
+    }
 
-    // Gold gradient
-    const gold = ctx.createLinearGradient(0, -h, 0, 0)
-    gold.addColorStop(0, '#fde047')
-    gold.addColorStop(0.5, '#eab308')
-    gold.addColorStop(1, '#ca8a04')
+    // Contact shadow
+    ctx.save()
+    ctx.translate(h * 0.03, h * 0.04)
+    crownPath()
+    ctx.fillStyle = 'rgba(0,0,0,0.32)'
+    ctx.fill()
+    ctx.restore()
 
+    crownPath()
+    const gold = ctx.createLinearGradient(-w * 0.5, -ht, w * 0.5, 0)
+    gold.addColorStop(0, '#fff7c2')
+    gold.addColorStop(0.22, '#f7cf3a')
+    gold.addColorStop(0.5, '#d99a10')
+    gold.addColorStop(0.78, '#f7cf3a')
+    gold.addColorStop(1, '#8a5a05')
     ctx.fillStyle = gold
-    ctx.beginPath()
-    ctx.moveTo(-w * 0.5, 0)
-    ctx.lineTo(-w * 0.45, -h * 0.7)
-    ctx.lineTo(-w * 0.25, -h * 0.4)
-    ctx.lineTo(0, -h)
-    ctx.lineTo(w * 0.25, -h * 0.4)
-    ctx.lineTo(w * 0.45, -h * 0.7)
-    ctx.lineTo(w * 0.5, 0)
-    ctx.closePath()
     ctx.fill()
 
-    // Base band
-    ctx.fillStyle = '#a16207'
-    ctx.fillRect(-w * 0.5, 0, w, h * 0.15)
+    // Base band (darker metal)
+    const band = ctx.createLinearGradient(0, -ht * 0.16, 0, 0)
+    band.addColorStop(0, '#b07b0c')
+    band.addColorStop(0.5, '#8a5a05')
+    band.addColorStop(1, '#6b4403')
+    ctx.fillStyle = band
+    ctx.fillRect(-w * 0.5, -ht * 0.16, w, ht * 0.16)
 
     // Jewels
-    const jewels = ['#ef4444', '#3b82f6', '#10b981', '#ec4899', '#3b82f6']
-    jewels.forEach((col, i) => {
-      const jx = -w * 0.38 + i * (w * 0.19)
-      ctx.fillStyle = col
-      ctx.beginPath()
-      ctx.arc(jx, h * 0.075, s * 0.055, 0, Math.PI * 2)
-      ctx.fill()
-    })
+    sphere(ctx, -w * 0.3, -ht * 0.075, h * 0.055, '#e11d48', '#ffb3c1', 0.2)
+    sphere(ctx, 0, -ht * 0.075, h * 0.065, '#2563eb', '#bfdbfe', 0.2)
+    sphere(ctx, w * 0.3, -ht * 0.075, h * 0.055, '#059669', '#a7f3d0', 0.2)
+    sphere(ctx, 0, -ht * 1.02, h * 0.075, '#fde68a', '#ffffff', 0.14)
 
-    // Sparkles on peaks
-    drawStar(ctx, 0, -h * 1.05, s * 0.14, '#ffffff')
-    drawStar(ctx, -w * 0.45, -h * 0.75, s * 0.1, '#fef08a')
-    drawStar(ctx, w * 0.45, -h * 0.75, s * 0.1, '#fef08a')
     ctx.restore()
   },
 
   // 9. Flower Wreath 🌸
-  flower_crown(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y + s * 0.1)
-    ctx.rotate(geo.roll)
+  flower_crown(ctx, g) {
+    const { hw: h } = g
+    const r = h * 0.92
+    const colors = ['#f472b6', '#fde047', '#fb7185', '#c084fc', '#38bdf8', '#4ade80', '#fda4af']
 
-    const w = s * 1.3
-    // Leaves arc
-    ctx.strokeStyle = '#4ade80'
-    ctx.lineWidth = Math.max(2, s * 0.04)
+    ctx.save()
+    ctx.translate(g.headTop.x, g.headTop.y + h * 0.14)
+    ctx.rotate(g.roll)
+
+    // Vine
+    ctx.strokeStyle = '#3f8f4a'
+    ctx.lineWidth = Math.max(2, h * 0.035)
     ctx.beginPath()
-    ctx.arc(0, s * 0.4, w * 0.65, Math.PI * 1.15, Math.PI * 1.85)
+    ctx.arc(0, h * 0.5, r, Math.PI * 1.16, Math.PI * 1.84)
     ctx.stroke()
 
-    // Flowers along the arc
-    const flowerColors = ['#f472b6', '#fde047', '#fb7185', '#c084fc', '#f472b6', '#fde047']
-    const count = flowerColors.length
+    const count = 7
     for (let i = 0; i < count; i += 1) {
-      const angle = Math.PI * 1.2 + (i / (count - 1)) * (Math.PI * 0.6)
-      const fx = Math.cos(angle) * (w * 0.65)
-      const fy = s * 0.4 + Math.sin(angle) * (w * 0.65)
+      const a = Math.PI * 1.18 + (i / (count - 1)) * (Math.PI * 0.64)
+      const fx = Math.cos(a) * r
+      const fy = h * 0.5 + Math.sin(a) * r
+      const pr = h * 0.115
+      const col = colors[i % colors.length]
 
-      // Draw petals
-      ctx.fillStyle = flowerColors[i]
+      // Petals
       for (let p = 0; p < 5; p += 1) {
-        const pr = (p * Math.PI * 2) / 5
-        const px = fx + Math.cos(pr) * (s * 0.1)
-        const py = fy + Math.sin(pr) * (s * 0.1)
-        ctx.beginPath()
-        ctx.arc(px, py, s * 0.075, 0, Math.PI * 2)
-        ctx.fill()
+        const pa = (p * Math.PI * 2) / 5 + i * 0.4
+        sphere(ctx, fx + Math.cos(pa) * pr * 0.75, fy + Math.sin(pa) * pr * 0.75, pr * 0.62, col, '#ffffff', 0.14)
       }
-      // Center
-      ctx.fillStyle = '#ffffff'
-      ctx.beginPath()
-      ctx.arc(fx, fy, s * 0.05, 0, Math.PI * 2)
-      ctx.fill()
+      sphere(ctx, fx, fy, pr * 0.45, '#fde68a', '#ffffff', 0.14)
     }
     ctx.restore()
   },
 
   // 10. Angel Halo 😇
-  angel(ctx, geo) {
-    const s = geo.eyeDist
+  angel(ctx, g) {
+    const { hw: h } = g
+    const rx = h * 0.78
+    const ry = h * 0.24
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y - s * 0.5)
-    ctx.rotate(geo.roll)
+    ctx.translate(g.headTop.x, g.headTop.y - h * 0.34)
+    ctx.rotate(g.roll)
 
-    const rx = s * 0.85
-    const ry = s * 0.28
+    // Outer bloom
+    const bloom = ctx.createRadialGradient(0, 0, rx * 0.6, 0, 0, rx * 1.25)
+    bloom.addColorStop(0, 'rgba(253,224,71,0.5)')
+    bloom.addColorStop(1, 'rgba(253,224,71,0)')
+    ctx.fillStyle = bloom
+    ctx.beginPath()
+    ctx.ellipse(0, 0, rx * 1.25, ry * 2.4, 0, 0, Math.PI * 2)
+    ctx.fill()
 
-    // Outer warm aura
-    ctx.shadowColor = '#fde047'
-    ctx.shadowBlur = s * 0.4
-    ctx.strokeStyle = '#fef08a'
-    ctx.lineWidth = Math.max(3, s * 0.09)
+    // Torus body
+    ctx.lineCap = 'round'
+    ctx.strokeStyle = '#b07b0c'
+    ctx.lineWidth = Math.max(4, h * 0.1)
     ctx.beginPath()
     ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2)
     ctx.stroke()
 
-    // Inner bright core
-    ctx.shadowBlur = 0
-    ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = Math.max(1.5, s * 0.04)
+    ctx.strokeStyle = '#fde047'
+    ctx.lineWidth = Math.max(3, h * 0.07)
     ctx.beginPath()
-    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2)
+    ctx.ellipse(0, -h * 0.012, rx, ry, 0, 0, Math.PI * 2)
     ctx.stroke()
 
-    // Floating sparkle dust
-    drawStar(ctx, -rx * 0.8, -ry * 1.2, s * 0.12, '#ffffff')
-    drawStar(ctx, rx * 0.7, -ry * 1.4, s * 0.15, '#fef08a')
-    drawStar(ctx, rx * 1.1, ry * 0.6, s * 0.09, '#fef08a')
+    ctx.strokeStyle = '#fffbe8'
+    ctx.lineWidth = Math.max(1.5, h * 0.028)
+    ctx.beginPath()
+    ctx.ellipse(0, -h * 0.02, rx * 0.97, ry * 0.9, 0, Math.PI * 1.05, Math.PI * 1.9)
+    ctx.stroke()
+
+    sparkle(ctx, -rx * 0.85, -ry * 1.6, h * 0.12, '#ffffff')
+    sparkle(ctx, rx * 0.78, -ry * 1.9, h * 0.15, '#fef08a')
+    sparkle(ctx, rx * 1.05, ry * 1.1, h * 0.09, '#fef08a')
     ctx.restore()
   },
 
   // 11. Devil Horns 😈
-  devil(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+  devil(ctx, g) {
+    const { hw: h } = g
 
-    const drawHorn = (side) => {
+    ctx.save()
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
+
+    const horn = (side) => {
       ctx.save()
       ctx.scale(side, 1)
-      ctx.translate(s * 0.55, -s * 0.05)
+      ctx.translate(h * 0.5, -h * 0.02)
+      ctx.rotate(-0.1)
 
-      // Ruby red horn curve
-      ctx.fillStyle = '#dc2626'
-      ctx.beginPath()
-      ctx.moveTo(-s * 0.12, 0)
-      ctx.quadraticCurveTo(-s * 0.15, -s * 0.55, s * 0.1, -s * 0.8)
-      ctx.quadraticCurveTo(0, -s * 0.45, s * 0.12, 0)
-      ctx.closePath()
+      const bw = h * 0.2
+      const ht = h * 0.9
+
+      const path = () => {
+        ctx.beginPath()
+        ctx.moveTo(-bw, 0)
+        ctx.bezierCurveTo(-bw * 1.05, -ht * 0.45, -bw * 0.25, -ht * 0.86, bw * 0.55, -ht)
+        ctx.bezierCurveTo(bw * 0.1, -ht * 0.5, bw * 0.95, -ht * 0.2, bw * 1.05, 0)
+        ctx.closePath()
+      }
+
+      ctx.save()
+      ctx.translate(h * 0.02, h * 0.03)
+      path()
+      ctx.fillStyle = 'rgba(0,0,0,0.28)'
+      ctx.fill()
+      ctx.restore()
+
+      path()
+      const grad = ctx.createLinearGradient(-bw, 0, bw * 1.1, -ht)
+      grad.addColorStop(0, '#65090f')
+      grad.addColorStop(0.4, '#c81e2c')
+      grad.addColorStop(0.78, '#f87171')
+      grad.addColorStop(1, '#ffc4c4')
+      ctx.fillStyle = grad
       ctx.fill()
 
-      // Horn highlight sheen
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)'
-      ctx.lineWidth = Math.max(1.5, s * 0.025)
+      // Sheen
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+      ctx.lineWidth = Math.max(1.5, h * 0.018)
       ctx.beginPath()
-      ctx.moveTo(-s * 0.06, -s * 0.15)
-      ctx.quadraticCurveTo(-s * 0.08, -s * 0.45, s * 0.05, -s * 0.68)
+      ctx.moveTo(-bw * 0.3, -ht * 0.1)
+      ctx.quadraticCurveTo(-bw * 0.35, -ht * 0.5, bw * 0.28, -ht * 0.86)
       ctx.stroke()
       ctx.restore()
     }
 
-    drawHorn(-1)
-    drawHorn(1)
+    horn(-1)
+    horn(1)
     ctx.restore()
   },
 
-  // 12. Strawberry Hat 🍓
-  strawberry(ctx, geo) {
-    const s = geo.eyeDist
+  // 12. Strawberry 🍓
+  strawberry(ctx, g) {
+    const { hw: h } = g
+    const rx = h * 0.62
+    const ry = h * 0.5
+    const cy = -h * 0.32
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
 
-    const w = s * 1.2
-    const h = s * 0.85
-
-    // Red strawberry cap
-    ctx.fillStyle = '#ef4444'
+    // Body
+    ctx.save()
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'
     ctx.beginPath()
-    ctx.ellipse(0, -h * 0.45, w * 0.5, h * 0.5, 0, 0, Math.PI * 2)
+    ctx.ellipse(h * 0.04, cy + ry * 0.5, rx * 1.02, ry * 0.6, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    const body = ctx.createRadialGradient(-rx * 0.3, cy - ry * 0.35, rx * 0.1, 0, cy + ry * 0.25, rx * 1.15)
+    body.addColorStop(0, '#ff8a8a')
+    body.addColorStop(0.35, '#e11d48')
+    body.addColorStop(0.8, '#9f1239')
+    body.addColorStop(1, '#5c0a1f')
+    ctx.fillStyle = body
+    ctx.beginPath()
+    ctx.ellipse(0, cy, rx, ry, 0, 0, Math.PI * 2)
     ctx.fill()
 
     // Seeds
-    ctx.fillStyle = '#fef08a'
-    const seedPositions = [
-      [-w * 0.25, -h * 0.5],
-      [0, -h * 0.6],
-      [w * 0.25, -h * 0.5],
-      [-w * 0.15, -h * 0.3],
-      [w * 0.15, -h * 0.3],
+    const seeds = [
+      [-0.42, -0.28], [0, -0.4], [0.42, -0.28],
+      [-0.24, 0.02], [0.24, 0.02], [0, 0.24],
     ]
-    seedPositions.forEach(([sx, sy]) => {
-      ctx.beginPath()
-      ctx.ellipse(sx, sy, s * 0.02, s * 0.045, 0.2, 0, Math.PI * 2)
-      ctx.fill()
-    })
-
-    // Leaf stem at top
-    ctx.fillStyle = '#22c55e'
-    for (let l = 0; l < 4; l += 1) {
-      const la = (l * Math.PI) / 2
-      ctx.beginPath()
-      ctx.ellipse(Math.cos(la) * s * 0.12, -h * 0.95 + Math.sin(la) * s * 0.05, s * 0.1, s * 0.05, la, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    ctx.restore()
-    drawBlush(ctx, geo.blushL.x, geo.blushL.y, s * 0.35)
-    drawBlush(ctx, geo.blushR.x, geo.blushR.y, s * 0.35)
-  },
-
-  // 13. Toadstool Mushroom 🍄
-  mushroom(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
-
-    const w = s * 1.4
-    const h = s * 0.85
-
-    // Red mushroom dome
-    ctx.fillStyle = '#e11d48'
-    ctx.beginPath()
-    ctx.arc(0, -h * 0.2, w * 0.48, Math.PI, 0)
-    ctx.closePath()
-    ctx.fill()
-
-    // Mushroom underside
-    ctx.fillStyle = '#fef3c7'
-    ctx.beginPath()
-    ctx.ellipse(0, -h * 0.2, w * 0.48, h * 0.12, 0, 0, Math.PI * 2)
-    ctx.fill()
-
-    // White polka dots
-    ctx.fillStyle = '#ffffff'
-    ;[
-      [0, -h * 0.55, s * 0.12],
-      [-w * 0.25, -h * 0.4, s * 0.09],
-      [w * 0.25, -h * 0.4, s * 0.09],
-      [-w * 0.12, -h * 0.28, s * 0.07],
-      [w * 0.12, -h * 0.28, s * 0.07],
-    ].forEach(([dx, dy, dr]) => {
-      ctx.beginPath()
-      ctx.arc(dx, dy, dr, 0, Math.PI * 2)
-      ctx.fill()
-    })
-    ctx.restore()
-  },
-
-  // 14. Ribbon Bow 🎀
-  ribbon(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y - s * 0.1)
-    ctx.rotate(geo.roll)
-
-    const rw = s * 0.7
-    const rh = s * 0.55
-
-    const drawBowWing = (side) => {
+    seeds.forEach(([sx, sy]) => {
       ctx.save()
-      ctx.scale(side, 1)
-      ctx.fillStyle = '#f472b6'
+      ctx.translate(rx * sx, cy + ry * sy)
+      ctx.rotate(-0.25)
+      const sg = ctx.createLinearGradient(0, -1, 0, 2)
+      sg.addColorStop(0, '#fff7b0')
+      sg.addColorStop(1, '#d9a800')
+      ctx.fillStyle = sg
       ctx.beginPath()
-      ctx.moveTo(0, 0)
-      ctx.bezierCurveTo(rw * 0.6, -rh, rw, -rh * 0.5, rw * 0.85, 0)
-      ctx.bezierCurveTo(rw, rh * 0.5, rw * 0.6, rh, 0, 0)
-      ctx.fill()
-
-      // Inner shadow fold
-      ctx.fillStyle = '#db2777'
-      ctx.beginPath()
-      ctx.ellipse(rw * 0.45, 0, rw * 0.15, rh * 0.2, 0, 0, Math.PI * 2)
+      ctx.ellipse(0, 0, h * 0.026, h * 0.045, 0, 0, Math.PI * 2)
       ctx.fill()
       ctx.restore()
-    }
+    })
 
-    drawBowWing(-1)
-    drawBowWing(1)
-
-    // Center knot
-    ctx.fillStyle = '#ec4899'
-    ctx.beginPath()
-    ctx.arc(0, 0, s * 0.16, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.restore()
-  },
-
-  // 15. Heart Blush 💖
-  heart_blush(ctx, geo) {
-    const s = geo.eyeDist
-    // Pink heart blush on cheeks
-    ctx.fillStyle = 'rgba(244, 63, 94, 0.48)'
-    drawHeart(ctx, geo.blushL.x, geo.blushL.y - s * 0.15, s * 0.4)
-    drawHeart(ctx, geo.blushR.x, geo.blushR.y - s * 0.15, s * 0.4)
-
-    // Floating hearts above head
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
-    ctx.fillStyle = '#fb7185'
-    drawHeart(ctx, -s * 0.55, -s * 0.5, s * 0.25)
-    drawHeart(ctx, s * 0.45, -s * 0.65, s * 0.3)
-    drawHeart(ctx, 0, -s * 0.8, s * 0.2)
-    ctx.restore()
-  },
-
-  // 16. Star Glam ✨
-  star_glam(ctx, geo) {
-    const s = geo.eyeDist
-    drawStar(ctx, geo.blushL.x, geo.blushL.y, s * 0.22, '#facc15')
-    drawStar(ctx, geo.blushL.x + s * 0.2, geo.blushL.y + s * 0.08, s * 0.12, '#ffffff')
-    drawStar(ctx, geo.blushR.x, geo.blushR.y, s * 0.22, '#facc15')
-    drawStar(ctx, geo.blushR.x - s * 0.2, geo.blushR.y + s * 0.08, s * 0.12, '#ffffff')
-
-    // Forehead star
-    ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y + s * 0.2)
-    ctx.rotate(geo.roll)
-    drawStar(ctx, 0, 0, s * 0.28, '#ffffff')
-    ctx.restore()
-  },
-
-  // 17. Cyber Shades 🕶️
-  shades(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.eyeMid.x, geo.eyeMid.y)
-    ctx.rotate(geo.roll)
-
-    const w = s * 1.55
-    const h = s * 0.65
-
-    // Dark sleek frame
-    ctx.fillStyle = '#0f172a'
-    ctx.beginPath()
-    ctx.roundRect(-w * 0.5, -h * 0.4, w, h * 0.8, s * 0.15)
-    ctx.fill()
-
-    // Neon gradient lens
-    const neon = ctx.createLinearGradient(-w * 0.45, 0, w * 0.45, 0)
-    neon.addColorStop(0, '#06b6d4')
-    neon.addColorStop(0.5, '#3b82f6')
-    neon.addColorStop(1, '#d946ef')
-    ctx.fillStyle = neon
-
-    // Left lens
-    ctx.beginPath()
-    ctx.roundRect(-w * 0.45, -h * 0.3, w * 0.4, h * 0.6, s * 0.08)
-    ctx.fill()
-
-    // Right lens
-    ctx.beginPath()
-    ctx.roundRect(w * 0.05, -h * 0.3, w * 0.4, h * 0.6, s * 0.08)
-    ctx.fill()
-
-    // Glare slash
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)'
-    ctx.lineWidth = Math.max(2, s * 0.035)
-    ctx.beginPath()
-    ctx.moveTo(-w * 0.38, -h * 0.15)
-    ctx.lineTo(-w * 0.15, h * 0.15)
-    ctx.moveTo(w * 0.12, -h * 0.15)
-    ctx.lineTo(w * 0.35, h * 0.15)
-    ctx.stroke()
-    ctx.restore()
-  },
-
-  // 18. Gentleman Glasses & Mustache 👓
-  retro_glasses(ctx, geo) {
-    const s = geo.eyeDist
-    ctx.save()
-    ctx.translate(geo.eyeMid.x, geo.eyeMid.y)
-    ctx.rotate(geo.roll)
-
-    const r = s * 0.36
-    ctx.strokeStyle = '#0f172a'
-    ctx.lineWidth = Math.max(2.5, s * 0.05)
-
-    // Left circle glass
-    ctx.beginPath()
-    ctx.arc(-s * 0.5, 0, r, 0, Math.PI * 2)
-    ctx.stroke()
-
-    // Right circle glass
-    ctx.beginPath()
-    ctx.arc(s * 0.5, 0, r, 0, Math.PI * 2)
-    ctx.stroke()
-
-    // Bridge
-    ctx.beginPath()
-    ctx.arc(0, -r * 0.25, r * 0.45, Math.PI, 0)
-    ctx.stroke()
-    ctx.restore()
-
-    // Curled Mustache
-    ctx.save()
-    ctx.translate(geo.noseBase.x, geo.noseBase.y + s * 0.12)
-    ctx.rotate(geo.roll)
-    const mw = s * 0.65
-    ctx.fillStyle = '#334155'
-
-    const drawStacheWing = (side) => {
+    // Calyx (green leaves)
+    const leaf = (angle, len) => {
       ctx.save()
-      ctx.scale(side, 1)
+      ctx.rotate(angle)
+      const lg = ctx.createLinearGradient(0, 0, 0, -len)
+      lg.addColorStop(0, '#166534')
+      lg.addColorStop(0.55, '#22c55e')
+      lg.addColorStop(1, '#86efac')
+      ctx.fillStyle = lg
       ctx.beginPath()
-      ctx.moveTo(0, 0)
-      ctx.quadraticCurveTo(mw * 0.4, -s * 0.08, mw * 0.75, s * 0.06)
-      ctx.quadraticCurveTo(mw * 0.85, -s * 0.04, mw * 0.8, -s * 0.12)
-      ctx.quadraticCurveTo(mw * 0.45, s * 0.08, 0, s * 0.08)
+      ctx.moveTo(0, cy - ry * 0.72)
+      ctx.quadraticCurveTo(len * 0.42, cy - ry * 0.72 - len * 0.55, 0, cy - ry * 0.72 - len)
+      ctx.quadraticCurveTo(-len * 0.42, cy - ry * 0.72 - len * 0.55, 0, cy - ry * 0.72)
       ctx.closePath()
       ctx.fill()
       ctx.restore()
     }
 
-    drawStacheWing(-1)
-    drawStacheWing(1)
+    ;[-0.85, -0.42, 0, 0.42, 0.85].forEach((a) => leaf(a, h * 0.26))
+    ctx.restore()
+
+    blush(ctx, g.blushL.x, g.blushL.y, g.eyeDist * 0.4)
+    blush(ctx, g.blushR.x, g.blushR.y, g.eyeDist * 0.4)
+  },
+
+  // 13. Toadstool 🍄
+  mushroom(ctx, g) {
+    const { hw: h } = g
+    const rw = h * 0.85
+    const rh = h * 0.62
+
+    ctx.save()
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
+
+    // Dome
+    ctx.save()
+    ctx.fillStyle = 'rgba(0,0,0,0.24)'
+    ctx.beginPath()
+    ctx.ellipse(h * 0.04, rh * 0.16, rw * 1.02, rh * 0.34, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    const dome = ctx.createRadialGradient(-rw * 0.35, -rh * 0.9, rw * 0.1, 0, -rh * 0.2, rw * 1.1)
+    dome.addColorStop(0, '#ff9aa8')
+    dome.addColorStop(0.3, '#e11d48')
+    dome.addColorStop(0.75, '#9f1239')
+    dome.addColorStop(1, '#4c0519')
+    ctx.fillStyle = dome
+    ctx.beginPath()
+    ctx.ellipse(0, 0, rw, rh, 0, Math.PI, 0)
+    ctx.closePath()
+    ctx.fill()
+
+    // Underside (gill plate)
+    const gill = ctx.createLinearGradient(0, -rh * 0.06, 0, rh * 0.16)
+    gill.addColorStop(0, '#fff8e1')
+    gill.addColorStop(1, '#d8c9a8')
+    ctx.fillStyle = gill
+    ctx.beginPath()
+    ctx.ellipse(0, 0, rw, rh * 0.16, 0, 0, Math.PI)
+    ctx.fill()
+
+    // Polka dots
+    ;[
+      [0, -rh * 0.55, h * 0.13],
+      [-rw * 0.5, -rh * 0.32, h * 0.1],
+      [rw * 0.5, -rh * 0.32, h * 0.1],
+      [-rw * 0.22, -rh * 0.7, h * 0.075],
+      [rw * 0.24, -rh * 0.72, h * 0.07],
+    ].forEach(([dx, dy, dr]) => sphere(ctx, dx, dy, dr, '#fffdf5', '#ffffff', 0.1))
+
+    ctx.restore()
+    blush(ctx, g.blushL.x, g.blushL.y, g.eyeDist * 0.38, '251, 146, 160')
+    blush(ctx, g.blushR.x, g.blushR.y, g.eyeDist * 0.38, '251, 146, 160')
+  },
+
+  // 14. Ribbon 🎀
+  ribbon(ctx, g) {
+    const { hw: h } = g
+    const loopW = h * 0.8
+    const loopH = h * 0.55
+
+    ctx.save()
+    ctx.translate(g.headTop.x - h * 0.1, g.headTop.y - h * 0.06)
+    ctx.rotate(g.roll - 0.12)
+
+    const bow = (side) => {
+      ctx.save()
+      ctx.scale(side, 1)
+
+      const path = () => {
+        ctx.beginPath()
+        ctx.moveTo(0, 0)
+        ctx.bezierCurveTo(loopW * 0.35, -loopH * 1.05, loopW * 1.05, -loopH * 0.72, loopW * 0.92, 0)
+        ctx.bezierCurveTo(loopW * 1.05, loopH * 0.72, loopW * 0.35, loopH * 1.05, 0, 0)
+        ctx.closePath()
+      }
+
+      ctx.save()
+      ctx.translate(h * 0.02, h * 0.035)
+      path()
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'
+      ctx.fill()
+      ctx.restore()
+
+      path()
+      const grad = ctx.createLinearGradient(0, -loopH, loopW, loopH)
+      grad.addColorStop(0, '#ffd1e6')
+      grad.addColorStop(0.4, '#f472b6')
+      grad.addColorStop(0.8, '#be185d')
+      grad.addColorStop(1, '#7d0f3c')
+      ctx.fillStyle = grad
+      ctx.fill()
+
+      // Fold shadow
+      ctx.fillStyle = 'rgba(127,15,60,0.35)'
+      ctx.beginPath()
+      ctx.ellipse(loopW * 0.5, 0, loopW * 0.16, loopH * 0.22, 0, 0, Math.PI * 2)
+      ctx.fill()
+
+      // Sheen
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+      ctx.lineWidth = Math.max(1.5, h * 0.02)
+      ctx.beginPath()
+      ctx.moveTo(loopW * 0.2, -loopH * 0.42)
+      ctx.quadraticCurveTo(loopW * 0.62, -loopH * 0.62, loopW * 0.82, -loopH * 0.14)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    bow(-1)
+    bow(1)
+
+    // Knot
+    sphere(ctx, 0, 0, h * 0.17, '#ec4899', '#ffe0f0', 0.2)
+
+    // Tails
+    ctx.save()
+    ctx.strokeStyle = '#f0559b'
+    ctx.lineWidth = Math.max(3, h * 0.05)
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(-h * 0.02, h * 0.1)
+    ctx.quadraticCurveTo(-h * 0.18, h * 0.34, -h * 0.1, h * 0.5)
+    ctx.moveTo(h * 0.02, h * 0.1)
+    ctx.quadraticCurveTo(h * 0.18, h * 0.34, h * 0.1, h * 0.5)
+    ctx.stroke()
+    ctx.restore()
+    ctx.restore()
+  },
+
+  // 15. Heart Blush 💖
+  heart_blush(ctx, g) {
+    const s = g.eyeDist
+    heart(ctx, g.blushL.x, g.blushL.y - s * 0.16, s * 0.52, '#f43f5e')
+    heart(ctx, g.blushR.x, g.blushR.y - s * 0.16, s * 0.52, '#f43f5e')
+
+    heart(ctx, g.headTop.x - s * 0.55, g.headTop.y - s * 0.32, s * 0.26, '#fb7185')
+    heart(ctx, g.headTop.x + s * 0.5, g.headTop.y - s * 0.46, s * 0.32, '#fda4af')
+    heart(ctx, g.headTop.x, g.headTop.y - s * 0.62, s * 0.2, '#fb7185')
+  },
+
+  // 16. Star Glam ✨
+  star_glam(ctx, g) {
+    const s = g.eyeDist
+    sparkle(ctx, g.blushL.x, g.blushL.y, s * 0.3, '#facc15')
+    sparkle(ctx, g.blushR.x, g.blushR.y, s * 0.3, '#facc15')
+    sparkle(ctx, g.headTop.x, g.headTop.y + s * 0.18, s * 0.34, '#ffffff')
+    sparkle(ctx, g.blushL.x - s * 0.3, g.blushL.y - s * 0.24, s * 0.14, '#ffffff')
+    sparkle(ctx, g.blushR.x + s * 0.3, g.blushR.y - s * 0.2, s * 0.14, '#ffffff')
+  },
+
+  // 17. Cyber Shades 🕶️
+  shades(ctx, g) {
+    const s = g.eyeDist
+    const w = s * 2.25
+    const hh = s * 0.8
+
+    ctx.save()
+    ctx.translate(g.eyeMid.x, g.eyeMid.y - s * 0.02)
+    ctx.rotate(g.roll)
+
+    // Temple arms
+    capsule(ctx, -w * 0.52, -s * 0.04, w * 0.16, s * 0.08, '#111827')
+    capsule(ctx, w * 0.52, -s * 0.04, w * 0.16, s * 0.08, '#111827')
+
+    // Frame
+    capsule(ctx, 0, 0, w, hh, '#101828')
+
+    // Lenses
+    const lens = (cx, c1) => {
+      const lg = ctx.createLinearGradient(cx - w * 0.2, -hh * 0.3, cx + w * 0.2, hh * 0.3)
+      lg.addColorStop(0, shiftColor(c1, 55))
+      lg.addColorStop(0.5, c1)
+      lg.addColorStop(1, shiftColor(c1, -55))
+      ctx.fillStyle = lg
+      ctx.beginPath()
+      ctx.roundRect(cx - w * 0.2, -hh * 0.32, w * 0.38, hh * 0.64, s * 0.12)
+      ctx.fill()
+
+      // Reflection
+      ctx.save()
+      ctx.beginPath()
+      ctx.roundRect(cx - w * 0.2, -hh * 0.32, w * 0.38, hh * 0.64, s * 0.12)
+      ctx.clip()
+      ctx.fillStyle = 'rgba(255,255,255,0.42)'
+      ctx.beginPath()
+      ctx.moveTo(cx - w * 0.24, hh * 0.4)
+      ctx.lineTo(cx - w * 0.02, -hh * 0.42)
+      ctx.lineTo(cx + w * 0.08, -hh * 0.42)
+      ctx.lineTo(cx - w * 0.14, hh * 0.4)
+      ctx.closePath()
+      ctx.fill()
+      ctx.restore()
+    }
+
+    lens(-w * 0.235, '#0891b2')
+    lens(w * 0.235, '#c026d3')
+
+    // Bridge
+    capsule(ctx, 0, -hh * 0.06, w * 0.1, hh * 0.12, '#1f2937')
+    ctx.restore()
+  },
+
+  // 18. Gentleman 👓
+  retro_glasses(ctx, g) {
+    const s = g.eyeDist
+    const r = s * 0.4
+
+    ctx.save()
+    ctx.translate(g.eyeMid.x, g.eyeMid.y)
+    ctx.rotate(g.roll)
+
+    const ring = (cx) => {
+      // Frame shadow
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)'
+      ctx.lineWidth = Math.max(4, s * 0.075)
+      ctx.beginPath()
+      ctx.arc(cx + s * 0.015, s * 0.02, r, 0, Math.PI * 2)
+      ctx.stroke()
+
+      // Metallic frame
+      const metal = ctx.createLinearGradient(cx - r, -r, cx + r, r)
+      metal.addColorStop(0, '#f8fafc')
+      metal.addColorStop(0.35, '#64748b')
+      metal.addColorStop(0.6, '#1e293b')
+      metal.addColorStop(1, '#94a3b8')
+      ctx.strokeStyle = metal
+      ctx.lineWidth = Math.max(3, s * 0.055)
+      ctx.beginPath()
+      ctx.arc(cx, 0, r, 0, Math.PI * 2)
+      ctx.stroke()
+
+      // Lens glint
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+      ctx.lineWidth = Math.max(1.5, s * 0.02)
+      ctx.beginPath()
+      ctx.arc(cx, 0, r * 0.82, Math.PI * 1.1, Math.PI * 1.55)
+      ctx.stroke()
+    }
+
+    ring(-s * 0.56)
+    ring(s * 0.56)
+
+    // Bridge
+    ctx.strokeStyle = '#334155'
+    ctx.lineWidth = Math.max(2.5, s * 0.045)
+    ctx.beginPath()
+    ctx.moveTo(-s * 0.56 + r, -r * 0.1)
+    ctx.quadraticCurveTo(0, -r * 0.5, s * 0.56 - r, -r * 0.1)
+    ctx.stroke()
+    ctx.restore()
+
+    // Curled 3D moustache
+    ctx.save()
+    ctx.translate(g.noseBase.x, g.noseBase.y + s * 0.14)
+    ctx.rotate(g.roll)
+
+    const wing = (side) => {
+      ctx.save()
+      ctx.scale(side, 1)
+
+      const mw = s * 0.72
+      const path = () => {
+        ctx.beginPath()
+        ctx.moveTo(0, 0)
+        ctx.bezierCurveTo(mw * 0.3, -s * 0.1, mw * 0.72, -s * 0.02, mw * 0.86, s * 0.12)
+        ctx.bezierCurveTo(mw * 0.92, -s * 0.02, mw * 0.82, -s * 0.18, mw * 0.7, -s * 0.16)
+        ctx.bezierCurveTo(mw * 0.4, -s * 0.18, mw * 0.16, -s * 0.08, 0, s * 0.06)
+        ctx.closePath()
+      }
+
+      path()
+      const grad = ctx.createLinearGradient(0, -s * 0.2, mw * 0.9, s * 0.16)
+      grad.addColorStop(0, '#3b4657')
+      grad.addColorStop(0.45, '#171e29')
+      grad.addColorStop(1, '#0a0f16')
+      ctx.fillStyle = grad
+      ctx.fill()
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+      ctx.lineWidth = Math.max(1.2, s * 0.016)
+      ctx.beginPath()
+      ctx.moveTo(mw * 0.14, -s * 0.01)
+      ctx.quadraticCurveTo(mw * 0.55, -s * 0.11, mw * 0.78, -s * 0.02)
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    wing(-1)
+    wing(1)
     ctx.restore()
   },
 
   // 19. Cowboy Hat 🤠
-  cowboy(ctx, geo) {
-    const s = geo.eyeDist
+  cowboy(ctx, g) {
+    const { hw: h } = g
+    const brimW = h * 1.25
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll)
+    ctx.translate(g.headTop.x, g.headTop.y)
+    ctx.rotate(g.roll)
 
-    const bw = s * 2.1
-    const bh = s * 0.45
-
-    // Curved brim
-    ctx.fillStyle = '#78350f'
+    // Brim
+    ctx.save()
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
     ctx.beginPath()
-    ctx.ellipse(0, 0, bw * 0.5, bh * 0.5, 0, 0, Math.PI * 2)
+    ctx.ellipse(h * 0.04, h * 0.1, brimW, h * 0.22, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    const brim = ctx.createLinearGradient(0, -h * 0.22, 0, h * 0.24)
+    brim.addColorStop(0, '#a9743c')
+    brim.addColorStop(0.45, '#7c4a1e')
+    brim.addColorStop(1, '#3b1d06')
+    ctx.fillStyle = brim
+    ctx.beginPath()
+    ctx.ellipse(0, 0, brimW, h * 0.22, 0, 0, Math.PI * 2)
     ctx.fill()
 
     // Crown
-    const cw = s * 1.1
-    const ch = s * 0.85
-    ctx.fillStyle = '#92400e'
-    ctx.beginPath()
-    ctx.moveTo(-cw * 0.5, 0)
-    ctx.lineTo(-cw * 0.4, -ch)
-    ctx.quadraticCurveTo(0, -ch * 0.8, cw * 0.4, -ch)
-    ctx.lineTo(cw * 0.5, 0)
-    ctx.closePath()
+    const cw = h * 0.8
+    const ch = h * 0.62
+    const crownPath = () => {
+      ctx.beginPath()
+      ctx.moveTo(-cw, 0)
+      ctx.quadraticCurveTo(-cw * 0.86, -ch * 0.9, -cw * 0.4, -ch)
+      ctx.quadraticCurveTo(0, -ch * 0.82, cw * 0.4, -ch)
+      ctx.quadraticCurveTo(cw * 0.86, -ch * 0.9, cw, 0)
+      ctx.closePath()
+    }
+
+    crownPath()
+    const crownGrad = ctx.createLinearGradient(-cw, -ch, cw, 0)
+    crownGrad.addColorStop(0, '#5a3411')
+    crownGrad.addColorStop(0.4, '#8d5a24')
+    crownGrad.addColorStop(0.72, '#a9743c')
+    crownGrad.addColorStop(1, '#4a2a0b')
+    ctx.fillStyle = crownGrad
     ctx.fill()
 
-    // Hatband
-    ctx.fillStyle = '#451a03'
-    ctx.fillRect(-cw * 0.48, -ch * 0.18, cw * 0.96, ch * 0.18)
+    // Crease
+    ctx.save()
+    crownPath()
+    ctx.clip()
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'
+    ctx.lineWidth = Math.max(2, h * 0.04)
+    ctx.beginPath()
+    ctx.moveTo(0, -ch * 0.95)
+    ctx.quadraticCurveTo(0, -ch * 0.5, 0, -ch * 0.05)
+    ctx.stroke()
+    ctx.restore()
 
-    // Gold sheriff star badge
-    drawStar(ctx, 0, -ch * 0.09, s * 0.12, '#facc15')
+    // Band
+    const band = ctx.createLinearGradient(0, -ch * 0.24, 0, -ch * 0.05)
+    band.addColorStop(0, '#2b1503')
+    band.addColorStop(1, '#120800')
+    ctx.fillStyle = band
+    ctx.fillRect(-cw, -ch * 0.24, cw * 2, ch * 0.19)
+
+    // Sheriff star
+    sparkle(ctx, 0, -ch * 0.145, h * 0.1, '#fbbf24')
     ctx.restore()
   },
 
   // 20. Party Cone 🥳
-  party(ctx, geo) {
-    const s = geo.eyeDist
+  party(ctx, g) {
+    const { hw: h } = g
+    const cw = h * 0.52
+    const ch = h * 1.05
+
     ctx.save()
-    ctx.translate(geo.headTop.x, geo.headTop.y)
-    ctx.rotate(geo.roll + 0.1)
+    ctx.translate(g.headTop.x + h * 0.16, g.headTop.y - h * 0.02)
+    ctx.rotate(g.roll + 0.22)
 
-    const w = s * 0.85
-    const h = s * 1.35
+    // Shadow
+    ctx.save()
+    ctx.translate(h * 0.03, h * 0.02)
+    ctx.beginPath()
+    ctx.moveTo(-cw, 0)
+    ctx.lineTo(0, -ch)
+    ctx.lineTo(cw, 0)
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'
+    ctx.fill()
+    ctx.restore()
 
-    // Cone body
+    // Body + stripes clipped inside the cone
     ctx.save()
     ctx.beginPath()
-    ctx.moveTo(-w * 0.5, 0)
-    ctx.lineTo(0, -h)
-    ctx.lineTo(w * 0.5, 0)
+    ctx.moveTo(-cw, 0)
+    ctx.lineTo(0, -ch)
+    ctx.lineTo(cw, 0)
     ctx.closePath()
     ctx.clip()
 
-    // Striped pattern
-    const stripeColors = ['#ec4899', '#06b6d4', '#facc15', '#a855f7']
-    stripeColors.forEach((color, idx) => {
+    const base = ctx.createLinearGradient(-cw, 0, cw, 0)
+    base.addColorStop(0, '#8b1c5a')
+    base.addColorStop(0.5, '#ff5fa2')
+    base.addColorStop(1, '#6b1444')
+    ctx.fillStyle = base
+    ctx.fillRect(-cw, -ch, cw * 2, ch)
+
+    const stripes = ['#f472b6', '#22d3ee', '#facc15', '#a855f7']
+    stripes.forEach((color, i) => {
+      const y0 = -ch + i * (ch / 4)
       ctx.fillStyle = color
-      ctx.fillRect(-w * 0.6, -h + idx * (h * 0.28), w * 1.2, h * 0.28)
+      ctx.globalAlpha = 0.92
+      ctx.fillRect(-cw, y0, cw * 2, ch / 8)
     })
+    ctx.globalAlpha = 1
+
+    // Cylindrical shading
+    const shade = ctx.createLinearGradient(-cw, 0, cw, 0)
+    shade.addColorStop(0, 'rgba(0,0,0,0.45)')
+    shade.addColorStop(0.42, 'rgba(255,255,255,0.28)')
+    shade.addColorStop(0.62, 'rgba(255,255,255,0.06)')
+    shade.addColorStop(1, 'rgba(0,0,0,0.5)')
+    ctx.fillStyle = shade
+    ctx.fillRect(-cw, -ch, cw * 2, ch)
     ctx.restore()
 
-    // Fluffy pompom ball at top
-    ctx.fillStyle = '#fde047'
-    ctx.beginPath()
-    ctx.arc(0, -h, s * 0.18, 0, Math.PI * 2)
-    ctx.fill()
+    // Pompom
+    sphere(ctx, 0, -ch, cw * 0.34, '#fde047', '#fffde7', 0.18)
 
-    // Confetti particles
-    const confetti = [
-      [-s * 0.6, -s * 0.4, '#06b6d4'],
-      [s * 0.65, -s * 0.5, '#ec4899'],
-      [-s * 0.45, -s * 0.8, '#facc15'],
-      [s * 0.5, -s * 0.9, '#a855f7'],
-    ]
-    confetti.forEach(([cx, cy, col]) => {
-      ctx.fillStyle = col
-      ctx.beginPath()
-      ctx.arc(cx, cy, s * 0.06, 0, Math.PI * 2)
-      ctx.fill()
-    })
+    // Confetti
+    ;[
+      [-h * 0.55, -h * 0.42, '#22d3ee'],
+      [h * 0.5, -h * 0.55, '#f472b6'],
+      [-h * 0.38, -h * 0.78, '#facc15'],
+      [h * 0.42, -h * 0.9, '#a855f7'],
+    ].forEach(([cx, cy, color]) => sphere(ctx, cx, cy, h * 0.045, color, '#ffffff', 0.1))
+
     ctx.restore()
   },
 }
 
 /**
- * Renders the chosen AR filter onto a 2D canvas context for all detected faces.
+ * Renders the selected 3D AR filter for every detected face.
  *
  * @param {CanvasRenderingContext2D} ctx
- * @param {Array<Array<{x: number, y: number, z: number}>>} faceLandmarksList
- * @param {(x: number, y: number) => {x: number, y: number}} toCanvas
+ * @param {Array<Array<{x:number,y:number,z:number}>>} faceLandmarksList
+ * @param {(x:number, y:number) => {x:number, y:number}} toCanvas
  * @param {string} filterId
  */
 export function renderArFilter(ctx, faceLandmarksList, toCanvas, filterId) {
-  if (!faceLandmarksList || !faceLandmarksList.length || !filterId || filterId === 'none') {
-    return
-  }
+  if (!faceLandmarksList?.length || !filterId || filterId === 'none') return
 
-  const renderer = FILTER_RENDERERS[filterId]
+  const renderer = RENDERERS_3D[filterId]
   if (!renderer) return
 
   faceLandmarksList.forEach((landmarks) => {
     if (!landmarks || landmarks.length < 468) return
-    const geo = extractFaceGeometry(landmarks, toCanvas)
-    renderer(ctx, geo)
+    renderer(ctx, extract3DFaceGeometry(landmarks, toCanvas))
   })
 }

@@ -8,7 +8,15 @@ import { drawPhotoStrip, loadImages, STRIP_WIDTH, getStripHeight } from '../lib/
  * (the canvas bitmap is cleared whenever its height attribute changes, so
  * exports must only happen after a completed draw).
  */
-export default function StripCanvas({ photos, theme, filter, arFilterId, canvasRef, onDrawn }) {
+export default function StripCanvas({
+  photos,
+  theme,
+  filter,
+  arFilterId,
+  canvasRef,
+  onDrawn,
+  darkMode = true,
+}) {
   useEffect(() => {
     if (photos.length === 0) return undefined
 
@@ -30,11 +38,23 @@ export default function StripCanvas({ photos, theme, filter, arFilterId, canvasR
 
   if (photos.length === 0) {
     return (
-      <div className="grid aspect-[600/480] w-full place-items-center rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-6 text-center">
+      <div
+        className={`grid aspect-[600/480] w-full place-items-center rounded-2xl border border-dashed p-6 text-center ${
+          darkMode ? 'border-slate-700 bg-slate-900/60' : 'border-slate-300 bg-white'
+        }`}
+      >
         <div>
           <p className="text-3xl">🎞️</p>
-          <p className="mt-2 text-sm font-medium text-slate-300">Your strip will appear here</p>
-          <p className="mt-1 text-xs text-slate-500">Press Start and smile — pick 2 or 3 photos in the header</p>
+          <p
+            className={`mt-2 text-sm font-medium ${
+              darkMode ? 'text-slate-300' : 'text-slate-700'
+            }`}
+          >
+            Your strip will appear here
+          </p>
+          <p className={`mt-1 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+            Press Start and smile — pick 2 or 3 photos in the header
+          </p>
         </div>
       </div>
     )

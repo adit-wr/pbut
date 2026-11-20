@@ -39,6 +39,7 @@ export default function BoothPage() {
   const [themeId, setThemeId] = useState(DEFAULT_THEME.id)
   const [filterId, setFilterId] = useState(DEFAULT_FILTER.id)
   const [arFilterId, setArFilterId] = useState(DEFAULT_AR_FILTER.id)
+  const [darkMode, setDarkMode] = useState(true)
   const [save, setSave] = useState(SAVE_IDLE)
   const [camError, setCamError] = useState(null)
   const [captureError, setCaptureError] = useState(null)
@@ -47,6 +48,14 @@ export default function BoothPage() {
   const handleLandmarksUpdate = useCallback((faces) => {
     latestLandmarksRef.current = faces
   }, [])
+
+  // Sync the page background/theme with the selected colour mode.
+  useEffect(() => {
+    document.body.className = darkMode
+      ? 'bg-slate-950 text-slate-100 antialiased transition-colors duration-200'
+      : 'bg-slate-50 text-slate-900 antialiased transition-colors duration-200'
+    document.documentElement.classList.toggle('dark', darkMode)
+  }, [darkMode])
 
   // THEMES is a module-level constant, so this reference is stable per theme id.
   const theme = THEMES.find((item) => item.id === themeId) ?? DEFAULT_THEME
@@ -208,7 +217,11 @@ export default function BoothPage() {
   const startDisabled = busy || !cameraOn
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-6">
+    <div
+      className={`mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-4 transition-colors duration-200 sm:px-6 sm:py-6 ${
+        darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
+    >
       {/* Full-screen shutter flash */}
       {flash && (
         <div
@@ -220,44 +233,76 @@ export default function BoothPage() {
       {/* Header */}
       <header className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
-          <span className="grid size-9 place-items-center rounded-xl bg-white text-lg text-slate-900">
+          <span
+            className={`grid size-9 place-items-center rounded-xl text-lg ${
+              darkMode ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'
+            }`}
+          >
             📸
           </span>
           <div>
             <h1 className="text-lg font-black leading-none tracking-tight">Potobut</h1>
-            <p className="text-xs text-slate-400">web photobooth</p>
+            <p className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              web photobooth
+            </p>
           </div>
         </div>
 
-        {/* Photo count selector (disabled only while capturing) */}
-        <div
-          role="group"
-          aria-label="Number of photos"
-          className="flex shrink-0 rounded-xl border border-slate-800 bg-slate-900/60 p-1 text-xs font-bold"
-        >
-          {[2, 3].map((n) => {
-            const active = photoCount === n
-            return (
-              <button
-                key={n}
-                type="button"
-                disabled={phase === 'counting'}
-                onClick={() => setPhotoCount(n)}
-                aria-pressed={active}
-                className={`min-h-9 min-w-16 rounded-lg px-4 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                  active ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {n} photos
-              </button>
-            )
-          })}
+        <div className="flex items-center gap-2">
+          {/* Photo count selector (disabled only while capturing) */}
+          <div
+            role="group"
+            aria-label="Number of photos"
+            className={`flex shrink-0 rounded-xl border p-1 text-xs font-bold ${
+              darkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-300 bg-white'
+            }`}
+          >
+            {[2, 3].map((n) => {
+              const active = photoCount === n
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  disabled={phase === 'counting'}
+                  onClick={() => setPhotoCount(n)}
+                  aria-pressed={active}
+                  className={`min-h-9 min-w-16 rounded-lg px-4 py-1.5 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    active
+                      ? darkMode
+                        ? 'bg-white text-slate-900'
+                        : 'bg-slate-900 text-white'
+                      : darkMode
+                        ? 'text-slate-400 hover:text-white'
+                        : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  {n} photos
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Light / Dark mode toggle */}
+          <button
+            type="button"
+            onClick={() => setDarkMode((on) => !on)}
+            aria-pressed={darkMode}
+            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={darkMode ? 'Light mode' : 'Dark mode'}
+            className={`grid size-11 place-items-center rounded-xl border text-lg transition ${
+              darkMode
+                ? 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
+                : 'border-slate-300 bg-white hover:border-slate-400'
+            }`}
+          >
+            {darkMode ? '☀️' : '🌙'}
+          </button>
         </div>
       </header>
 
-      <main className="mt-5 grid flex-1 items-start gap-5 sm:mt-6 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <main className="mt-5 grid flex-1 grid-cols-1 items-start gap-5 sm:mt-6 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Left: camera + controls */}
-        <section ref={cameraSectionRef} className="flex flex-col gap-4 scroll-mt-4">
+        <section ref={cameraSectionRef} className="flex min-w-0 flex-col gap-4 scroll-mt-4">
           <CameraStage
             webcamRef={webcamRef}
             countdown={countdown}
@@ -274,7 +319,7 @@ export default function BoothPage() {
           />
 
           {captureError && (
-            <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-500">
               {captureError}
             </p>
           )}
@@ -284,7 +329,11 @@ export default function BoothPage() {
               type="button"
               onClick={handleStart}
               disabled={startDisabled}
-              className="min-h-12 flex-1 rounded-xl bg-white px-6 py-3.5 text-sm font-bold text-slate-900 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none sm:px-10"
+              className={`min-h-12 flex-1 rounded-xl px-6 py-3.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none sm:px-10 ${
+                darkMode
+                  ? 'bg-white text-slate-900 hover:bg-slate-200'
+                  : 'bg-slate-900 text-white hover:bg-slate-800'
+              }`}
             >
               {phase === 'counting'
                 ? `Get ready… ${countdown ?? ''}`.trim()
@@ -300,14 +349,18 @@ export default function BoothPage() {
               aria-pressed={cameraOn}
               className={`min-h-12 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
                 cameraOn
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                  : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                  ? darkMode
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                    : 'border-emerald-500/50 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                  : darkMode
+                    ? 'border-slate-700 text-slate-400 hover:border-slate-500'
+                    : 'border-slate-300 text-slate-500 hover:border-slate-400'
               }`}
             >
               {cameraOn ? '📷 Camera on' : '📷 Camera off'}
             </button>
 
-            <span className="w-full text-xs text-slate-500 sm:w-auto">
+            <span className={`w-full text-xs sm:w-auto ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
               {!cameraOn
                 ? 'Turn the camera on to start'
                 : phase === 'counting'
@@ -318,14 +371,33 @@ export default function BoothPage() {
         </section>
 
         {/* Right: theme + strip + actions */}
-        <section className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-3 sm:p-4">
-            <ArFilterPicker value={arFilterId} onChange={setArFilterId} disabled={phase === 'counting'} />
-            <div className="border-t border-slate-800/80 pt-3">
-              <FilterPicker value={filterId} onChange={setFilterId} disabled={phase === 'counting'} />
+        <section className="flex min-w-0 flex-col gap-4">
+          <div
+            className={`flex flex-col gap-3 rounded-2xl border p-3 sm:p-4 ${
+              darkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-white'
+            }`}
+          >
+            <ArFilterPicker
+              value={arFilterId}
+              onChange={setArFilterId}
+              disabled={phase === 'counting'}
+              darkMode={darkMode}
+            />
+            <div className={`border-t pt-3 ${darkMode ? 'border-slate-800/80' : 'border-slate-200'}`}>
+              <FilterPicker
+                value={filterId}
+                onChange={setFilterId}
+                disabled={phase === 'counting'}
+                darkMode={darkMode}
+              />
             </div>
-            <div className="border-t border-slate-800/80 pt-3">
-              <ThemePicker value={themeId} onChange={setThemeId} disabled={phase === 'counting'} />
+            <div className={`border-t pt-3 ${darkMode ? 'border-slate-800/80' : 'border-slate-200'}`}>
+              <ThemePicker
+                value={themeId}
+                onChange={setThemeId}
+                disabled={phase === 'counting'}
+                darkMode={darkMode}
+              />
             </div>
           </div>
 
@@ -337,6 +409,7 @@ export default function BoothPage() {
               arFilterId={arFilterId}
               canvasRef={canvasRef}
               onDrawn={handleStripDrawn}
+              darkMode={darkMode}
             />
           </div>
 
@@ -345,10 +418,10 @@ export default function BoothPage() {
             <div
               className={`rounded-xl border px-3 py-2.5 text-sm ${
                 save.status === 'success'
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
                   : save.status === 'error'
-                    ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
-                    : 'border-sky-500/30 bg-sky-500/10 text-sky-300'
+                    ? 'border-rose-500/30 bg-rose-500/10 text-rose-500'
+                    : 'border-sky-500/30 bg-sky-500/10 text-sky-600'
               }`}
             >
               <span className="flex items-start justify-between gap-3">
@@ -391,23 +464,27 @@ export default function BoothPage() {
               type="button"
               onClick={handleRetake}
               disabled={!reviewing}
-              className="min-h-12 rounded-xl border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+              className={`min-h-12 rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-30 ${
+                darkMode
+                  ? 'border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'
+                  : 'border-slate-300 text-slate-600 hover:border-slate-400 hover:text-slate-900'
+              }`}
             >
               ↻ New strip
             </button>
           </div>
 
           {reviewing && !processed && (
-            <p className="-mt-1 text-center text-[11px] font-medium text-slate-500">
+            <p
+              className={`-mt-1 text-center text-[11px] font-medium ${
+                darkMode ? 'text-slate-500' : 'text-slate-400'
+              }`}
+            >
               {save.status === 'error'
                 ? 'Download is locked — tap Retry above to process the strip first.'
                 : 'Download will unlock once the strip is processed…'}
             </p>
           )}
-
-          <p className="text-center text-xs leading-relaxed text-slate-500">
-            Every finished strip is processed automatically — nothing is stored on the server.
-          </p>
         </section>
       </main>
     </div>
